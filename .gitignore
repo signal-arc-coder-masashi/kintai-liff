@@ -1,0 +1,9 @@
+# このリポジトリには静的HTMLのみ。秘密情報は絶対に置かない（多重防御）。
+.env
+.env.*
+*secret*
+*credentials*
+*.key
+*.pem
+token*.json
+.DS_Store

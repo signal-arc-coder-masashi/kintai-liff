@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>勤怠打刻</title>
+<style>
+  :root { --blue:#0071BC; --ok:#2e7d32; --ng:#c62828; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Hiragino Kaku Gothic ProN", sans-serif;
+         margin:0; padding:24px 18px; background:#f5f7fa; color:#222; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .sub { color:#667; font-size:13px; margin:0 0 20px; }
+  .btns { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  button { font-size:17px; font-weight:700; padding:18px 8px; border:none; border-radius:14px;
+           color:#fff; background:var(--blue); }
+  button.leave { background:#5c6bc0; }
+  button.brk { background:#78909c; }
+  button:disabled { opacity:.5; }
+  #status { margin-top:22px; padding:16px; border-radius:12px; background:#fff;
+            border:1px solid #e2e8f0; font-size:15px; line-height:1.6; min-height:24px; white-space:pre-wrap; }
+  .ok { color:var(--ok); font-weight:700; }
+  .ng { color:var(--ng); font-weight:700; }
+  .spin { color:#667; }
+  #uidbox { margin-top:12px; padding:10px; background:#f1f5f9; border-radius:8px;
+            font:600 13px ui-monospace,Menlo,monospace; word-break:break-all; color:#0f172a; display:none; }
+</style>
+</head>
+<body>
+  <h1>勤怠打刻</h1>
+  <p class="sub">ボタンを押すと、位置情報つきで打刻します。</p>
+
+  <div class="btns">
+    <button data-type="出勤">出勤</button>
+    <button data-type="退勤" class="leave">退勤</button>
+    <button data-type="休憩開始" class="brk">休憩開始</button>
+    <button data-type="休憩終了" class="brk">休憩終了</button>
+  </div>
+
+  <div id="status">準備中…</div>
+  <div id="uidbox"></div>
+
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <script>
+    // ── 設定（この2つだけ案件固有）─────────────────────────────
+    var LIFF_ID  = '2012312534-oQ6tgba9';
+    var EXEC_URL = 'https://script.google.com/macros/s/AKfycbxqryPSyt8qmx1It988kFLDp1QAFX9NzCse-JIErJpF4DrCntuyX2j3nc_v5NCFjwMuFA/exec';
+    // ───────────────────────────────────────────────────────────
+    var PRESET_TYPE = new URLSearchParams(location.search).get('type') || '';
+    var idToken = null;
+    var statusEl = document.getElementById('status');
+    var uidEl = document.getElementById('uidbox');
+
+    function setStatus(html, cls) { statusEl.className = cls || ''; statusEl.innerHTML = html; }
+    function showUid(uid) { if (uid) { uidEl.textContent = '登録用UID: ' + uid; uidEl.style.display = 'block'; } }
+    function setBusy(b) { var bs = document.querySelectorAll('button'); for (var i=0;i<bs.length;i++) bs[i].disabled = b; }
+
+    function init() {
+      if (!window.liff) { setStatus('LIFF SDKを読み込めません（通信環境を確認）', 'ng'); return; }
+      setStatus('初期化中…', 'spin');
+      liff.init({ liffId: LIFF_ID }).then(function () {
+        if (!liff.isLoggedIn()) { liff.login(); return; }
+        idToken = liff.getIDToken();
+        if (!idToken) {
+          if (!sessionStorage.getItem('kp_relogin')) {
+            sessionStorage.setItem('kp_relogin', '1');
+            liff.login();
+            return;
+          }
+          setStatus('本人確認トークンを取得できません。LIFFのScopeに「openid」が入っているか確認してください。', 'ng');
+          return;
+        }
+        sessionStorage.removeItem('kp_relogin');
+        setStatus('準備OK。打刻ボタンを押してください。');
+        if (PRESET_TYPE) { punch(PRESET_TYPE); }
+      }).catch(function (e) {
+        setStatus('初期化エラー: ' + (e && e.message ? e.message : JSON.stringify(e)), 'ng');
+      });
+    }
+
+    function punch(type) {
+      if (!idToken) { setStatus('本人確認がまだです。開き直してください。', 'ng'); return; }
+      setBusy(true);
+      setStatus('位置情報を取得中…', 'spin');
+      if (!navigator.geolocation) { setStatus('この端末は位置情報に対応していません', 'ng'); setBusy(false); return; }
+      navigator.geolocation.getCurrentPosition(function (pos) {
+        send(type, pos.coords.latitude, pos.coords.longitude);
+      }, function (err) {
+        setStatus('位置情報を許可してください（設定→位置情報）\n' + err.message, 'ng');
+        setBusy(false);
+      }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+    }
+
+    function send(type, lat, lng) {
+      setStatus(type + 'を記録中…', 'spin');
+      fetch(EXEC_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ source: 'liff-punch', idToken: idToken, type: type, lat: lat, lng: lng })
+      }).then(function (r) { return r.json(); }).then(function (res) {
+        setBusy(false);
+        if (res.ok) {
+          setStatus('✅ ' + res.msg, 'ok');
+          uidEl.style.display = 'none';
+          if (PRESET_TYPE && liff.isInClient()) { setTimeout(function () { liff.closeWindow(); }, 1600); }
+        } else if (res.needRegister && res.uid) {
+          setStatus('⚠️ ' + res.msg, 'ng');
+          showUid(res.uid);
+        } else {
+          setStatus('⚠️ ' + (res.msg || '記録に失敗しました'), 'ng');
+        }
+      }).catch(function (e) {
+        // 応答が読めない場合も、UIDはクライアント側(getProfile)で表示して登録を進められるようにする
+        setBusy(false);
+        setStatus('送信しました（応答の取得に失敗）。記録はスプレッドシートで確認してください。\n' + e, 'ng');
+        liff.getProfile().then(function (p) { showUid(p.userId); }).catch(function () {});
+      });
+    }
+
+    var bs = document.querySelectorAll('button');
+    for (var i=0;i<bs.length;i++) {
+      bs[i].addEventListener('click', function () { punch(this.getAttribute('data-type')); });
+    }
+    init();
+  </script>
+</body>
+</html>
