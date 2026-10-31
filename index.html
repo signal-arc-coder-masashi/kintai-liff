@@ -71,8 +71,10 @@
           return;
         }
         sessionStorage.removeItem('kp_relogin');
-        setStatus('準備OK。打刻ボタンを押してください。');
-        if (PRESET_TYPE) { punch(PRESET_TYPE); }
+        // ★開いただけでは打刻しない（事故防止）。ボタンのタップで確定する。
+        setStatus(PRESET_TYPE
+          ? ('準備OK。「' + PRESET_TYPE + '」ボタンを押すと打刻します。')
+          : '準備OK。打刻ボタンを押してください。');
       }).catch(function (e) {
         setStatus('初期化エラー: ' + (e && e.message ? e.message : JSON.stringify(e)), 'ng');
       });
