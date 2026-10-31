@@ -102,9 +102,10 @@
       }).then(function (r) { return r.json(); }).then(function (res) {
         setBusy(false);
         if (res.ok) {
-          setStatus('✅ ' + res.msg, 'ok');
+          var willClose = PRESET_TYPE && liff.isInClient();
+          setStatus('✅ ' + res.msg + (willClose ? '\n\nこの画面は自動で閉じます。' : ''), 'ok');
           uidEl.style.display = 'none';
-          if (PRESET_TYPE && liff.isInClient()) { setTimeout(function () { liff.closeWindow(); }, 1600); }
+          if (willClose) { setTimeout(function () { liff.closeWindow(); }, 2600); }
         } else if (res.needRegister && res.uid) {
           setStatus('⚠️ ' + res.msg, 'ng');
           showUid(res.uid);
