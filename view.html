@@ -79,7 +79,9 @@
 
   function renderShinsei(){
     var soon=function(i,l){return '<div class="card soon"><span class="cn">'+i+' '+l+'</span><span class="ca">準備中</span></div>';};
-    var h='<h1>📝 各種申請</h1><p class="sub">今後ここから、休暇や有給の申請が会話・ボタンで完結できるようになります（拡張予定のイメージ）。</p>';
+    var h='<h1>📝 各種申請</h1><p class="sub">打刻の修正は今すぐ申請できます。休暇・有給の申請は順次ここに追加します。</p>';
+    h+='<h2>打刻の修正</h2><a class="card" href="'+EXEC+'?view=fix" style="text-decoration:none"><span class="cn">🛠 打刻の修正を申請</span><span class="ca">申請する ›</span></a>';
+    h+='<p class="note">打刻を忘れたとき、正しい時刻で申請→管理者の承認で反映されます。</p>';
     h+='<h2>予定申請（事前に申請）</h2>'+soon('🌴','有給休暇の申請')+soon('🕑','半休の申請')+soon('🔁','振替・代休の申請');
     h+='<h2>当日申請（急ぎの連絡）</h2>'+soon('🤒','当日欠勤の連絡')+soon('🏃','遅刻の連絡')+soon('🏠','早退の連絡');
     h+='<h2>照会</h2><a class="card" href="'+VIEW_HTML+'?view=yukyu" style="text-decoration:none"><span class="cn">📊 有給の残日数を確認</span><span class="ca">見る ›</span></a>'+soon('🗂','申請状況を確認');
