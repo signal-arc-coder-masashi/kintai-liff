@@ -16,7 +16,7 @@
   table{width:100%;border-collapse:collapse;font-size:14px}
   th,td{text-align:left;padding:7px 6px;border-bottom:1px solid #eef1f4}
   th{color:#5a6572;font-size:12px;font-weight:600}
-  .pres{color:#2e7d32;font-weight:700}.left{color:#94a3b8}
+  .pres{color:#2e7d32;font-weight:700}.left{color:#94a3b8}.ng-txt{color:#c0392b;font-weight:700}
   .card{display:flex;align-items:center;justify-content:space-between;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:16px;margin-bottom:12px;text-decoration:none;color:#1a202c;box-shadow:0 1px 3px rgba(0,0,0,.05)}
   .cn{font-size:16px;font-weight:700}.ca{font-size:15px;font-weight:700;color:#1565c0}
   .call .ca{color:#2e7d32}
@@ -37,18 +37,35 @@
 
   function renderBoard(d){
     var h='<h1>📋 出勤簿（本日）</h1><p class="sub">'+esc(d.today)+'　最終更新 '+esc(d.updated)+'（30秒ごとに自動更新）</p>';
-    if(!d.clubs.length) h+='<div class="club"><span class="none">本日の出勤打刻はまだありません。</span></div>';
+    if(!d.clubs.length) h+='<div class="club"><span class="none">クラブが未登録です。</span></div>';
     d.clubs.forEach(function(c){
       h+='<div class="club"><div class="chead"><span class="cname">🏫 '+esc(c.name)+'</span>'+
         '<span class="badge '+(c.ok?'ok':'ng')+'">今 '+c.present+'名在席 / 基準'+c.base+'　'+(c.ok?'○ 充足':'△ あと'+(c.base-c.present)+'名')+'</span></div>';
-      h+='<table><tr><th>氏名</th><th>出勤</th><th>休憩</th><th>退勤</th><th>状態</th></tr>';
-      c.people.forEach(function(p){
-        var brk=(p.bs||p.be)?(esc(p.bs||'—')+'〜'+esc(p.be||'')):'—';
-        h+='<tr><td>'+esc(p.name)+'</td><td>'+esc(p.in||'—')+'</td><td>'+brk+'</td><td>'+esc(p.out||'—')+'</td>'+
-          '<td class="'+(p.present?'pres':'left')+'">'+(p.present?'● 在席':'退勤済')+'</td></tr>';
-      });
-      h+='</table></div>';
+      if(c.people.length){
+        h+='<table><tr><th>氏名</th><th>出勤</th><th>休憩</th><th>退勤</th><th>状態</th></tr>';
+        c.people.forEach(function(p){
+          var brk=(p.bs||p.be)?(esc(p.bs||'—')+'〜'+esc(p.be||'')):'—';
+          h+='<tr><td>'+esc(p.name)+'</td><td>'+esc(p.in||'—')+'</td><td>'+brk+'</td><td>'+esc(p.out||'—')+'</td>'+
+            '<td class="'+(p.present?'pres':'left')+'">'+(p.present?'● 在席':'退勤済')+'</td></tr>';
+        });
+        h+='</table>';
+      }else{
+        h+='<div class="none" style="font-size:13px;margin-top:4px">本日の打刻なし</div>';
+      }
+      h+='</div>';
     });
+    // 今月の配置充足（補助金「毎日3名」）—氏名なしのサマリ
+    h+='<h2>📈 今月の配置充足（毎日3名）'+esc(d.month||'')+'</h2>';
+    if(d.summary&&d.summary.length){
+      h+='<div class="club"><table><tr><th>クラブ</th><th>開所日</th><th>3名充足</th><th>不足</th><th>充足率</th></tr>';
+      d.summary.forEach(function(s){
+        h+='<tr><td>'+esc(s.club)+'</td><td>'+esc(s.open)+'</td><td class="pres">'+esc(s.ok)+'</td>'+
+          '<td class="'+(Number(s.ng)>0?'ng-txt':'left')+'">'+esc(s.ng)+'</td><td>'+esc(s.rate)+'</td></tr>';
+      });
+      h+='</table></div><p class="note">※「毎日3名配置」の達成状況（補助金エビデンス）。開所日・開所時間が未確定の間は暫定値です。</p>';
+    }else{
+      h+='<div class="club"><span class="none">今月はまだ集計対象の打刻がありません。</span></div>';
+    }
     app.innerHTML=h;
   }
 
