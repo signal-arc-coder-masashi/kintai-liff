@@ -133,7 +133,7 @@
     var soon=function(i,l){return '<div class="card soon"><span class="cn">'+i+' '+l+'</span><span class="ca">準備中</span></div>';};
     var h='<h1>📝 各種申請</h1><p class="sub">打刻の修正は今すぐ申請できます。休暇・有給の申請は順次ここに追加します。</p>';
     h+='<h2>打刻の修正</h2><a class="card" href="'+VIEW_HTML+'?view=fix" style="text-decoration:none"><span class="cn">🛠 打刻の修正を申請</span><span class="ca">申請する ›</span></a>';
-    h+='<p class="note">打刻を忘れたとき、正しい時刻で申請→上長・理事長/事務局長の承認で反映されます。お名前はLINEの本人確認から自動で判定します。</p>';
+    h+='<p class="note">打ち忘れの追加、押し間違いの取消、時刻の修正ができます。上長・理事長/事務局長の承認で反映されます。お名前はLINEの本人確認から自動で判定します。</p>';
     h+='<h2>予定申請（事前に申請）</h2>'+soon('🌴','有給休暇の申請')+soon('🕑','半休の申請')+soon('🔁','振替・代休の申請');
     h+='<h2>当日申請（急ぎの連絡）</h2>'+soon('🤒','当日欠勤の連絡')+soon('🏃','遅刻の連絡')+soon('🏠','早退の連絡');
     h+='<h2>照会</h2><a class="card" href="'+VIEW_HTML+'?view=yukyu" style="text-decoration:none"><span class="cn">📊 有給の残日数を確認</span><span class="ca">見る ›</span></a>'+soon('🗂','申請状況を確認');
@@ -142,38 +142,90 @@
   }
 
   // 打刻修正の申請フォーム（★氏名欄なし＝申請者はLINEの本人確認で自動特定。他人名義の申請は不可）
+  //   ①その日のあなたの打刻を一覧→押し間違いは「取消」・時刻ズレは「時刻を直す」／②打ち忘れは「追加」
+  var fixPunches=[], fixPending=null; // fixPending={logId, mode:'cancel'|'edit'}
   function renderFixForm(){
     var d=new Date();
     var today=d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);
-    var h='<h1>🛠 打刻の修正を申請</h1><p class="sub">正しい時刻を申請すると、上長→理事長/事務局長の承認で打刻ログに反映されます。</p>'+
+    var h='<h1>🛠 打刻の修正を申請</h1><p class="sub">押し間違いは「取消」、時刻のズレは「時刻を直す」。打ち忘れは下の「追加」から。いずれも上長→理事長/事務局長の承認で反映されます。</p>'+
       '<div class="form">'+
-      '<div class="field"><label>対象の日</label><input type="date" id="f-date" value="'+today+'"></div>'+
-      '<div class="field"><label>種別</label><select id="f-type">'+
-        '<option value="出勤">出勤</option><option value="退勤">退勤</option>'+
-        '<option value="休憩開始">休憩開始</option><option value="休憩終了">休憩終了</option></select></div>'+
-      '<div class="field"><label>正しい時刻</label><input type="time" id="f-time"></div>'+
-      '<div class="field"><label>理由（任意）</label><textarea id="f-reason" placeholder="例）退勤の打刻を忘れたため"></textarea></div>'+
-      '<button id="f-submit">この内容で申請する</button>'+
+        '<div class="field"><label>対象の日</label><input type="date" id="f-date" value="'+today+'"></div>'+
+        '<div class="field"><label>理由（任意・取消／時刻変更／追加に共通）</label><textarea id="f-reason" placeholder="例）出勤を押すつもりで退勤を押したため"></textarea></div>'+
+      '</div>'+
+      '<h2>この日のあなたの打刻</h2><div id="f-list"><p class="note">読み込み中…</p></div>'+
+      '<h2>打ち忘れを追加</h2><div class="form">'+
+        '<div class="field"><label>種別</label><select id="f-type">'+
+          '<option value="出勤">出勤</option><option value="退勤">退勤</option>'+
+          '<option value="休憩開始">休憩開始</option><option value="休憩終了">休憩終了</option></select></div>'+
+        '<div class="field"><label>正しい時刻</label><input type="time" id="f-time"></div>'+
+        '<button id="f-add">この内容で追加申請する</button>'+
       '</div><p class="note">※お名前はLINEの本人確認から自動で判定します（入力不要）。</p>'+
       '<div id="f-msg"></div>';
     app.innerHTML=h;
-    document.getElementById('f-submit').addEventListener('click',submitFix);
+    document.getElementById('f-date').addEventListener('change',loadMyPunches);
+    document.getElementById('f-add').addEventListener('click',function(){
+      submitFixOp('add','',document.getElementById('f-type').value,document.getElementById('f-time').value);
+    });
+    document.getElementById('f-list').addEventListener('click',onFixListClick);
+    loadMyPunches();
   }
 
-  function submitFix(){
-    var btn=document.getElementById('f-submit'), msg=document.getElementById('f-msg');
+  // その日の本人の打刻を取得して一覧描画（取消/時刻変更の対象選択）
+  function loadMyPunches(){
+    fixPending=null;
     var date=document.getElementById('f-date').value;
-    var type=document.getElementById('f-type').value;
-    var time=document.getElementById('f-time').value;
+    var box=document.getElementById('f-list');
+    box.innerHTML='<p class="note">読み込み中…</p>';
+    postJson({api:'mypunches',idToken:idToken,date:date}).then(function(res){
+      if(res&&res.needAuth){ box.innerHTML='<p class="note">本人確認が必要です。LINEのメニューから開き直してください。</p>'; return; }
+      fixPunches=(res&&res.punches)||[];
+      renderFixList();
+    }).catch(function(){ box.innerHTML='<p class="note">打刻の読み込みに失敗しました。再読み込みしてください。</p>'; });
+  }
+
+  function renderFixList(){
+    var box=document.getElementById('f-list');
+    if(!fixPunches.length){ box.innerHTML='<p class="none" style="font-size:13px">この日の打刻はありません。打ち忘れは下の「追加」からどうぞ。</p>'; return; }
+    var h='';
+    fixPunches.forEach(function(p,i){
+      h+='<div class="card"><span class="cn">'+esc(p.time)+'　'+esc(p.type)+'</span><span class="ca">';
+      if(fixPending&&fixPending.logId===p.logId&&fixPending.mode==='edit'){
+        h+='<input type="time" id="f-newtime" value="'+esc(p.time)+'" style="width:118px"> '+
+           '<button data-act="edit-ok" data-i="'+i+'">確定</button> <button data-act="ui-cancel" data-i="'+i+'">やめる</button>';
+      }else if(fixPending&&fixPending.logId===p.logId&&fixPending.mode==='cancel'){
+        h+='取り消しますか？ <button data-act="del-ok" data-i="'+i+'">実行</button> <button data-act="ui-cancel" data-i="'+i+'">やめる</button>';
+      }else{
+        h+='<button data-act="del" data-i="'+i+'">取消</button> <button data-act="edit" data-i="'+i+'">時刻を直す</button>';
+      }
+      h+='</span></div>';
+    });
+    box.innerHTML=h;
+  }
+
+  function onFixListClick(e){
+    var b=e.target.closest&&e.target.closest('button'); if(!b) return;
+    var act=b.getAttribute('data-act'), i=Number(b.getAttribute('data-i')), p=fixPunches[i];
+    if(act==='ui-cancel'){ fixPending=null; renderFixList(); return; }
+    if(!p) return;
+    if(act==='del'){ fixPending={logId:p.logId,mode:'cancel'}; renderFixList(); return; }
+    if(act==='edit'){ fixPending={logId:p.logId,mode:'edit'}; renderFixList(); return; }
+    if(act==='del-ok'){ submitFixOp('cancel',p.logId,p.type,p.time); return; }
+    if(act==='edit-ok'){ var nt=document.getElementById('f-newtime'); submitFixOp('edit',p.logId,p.type,nt?nt.value:''); return; }
+  }
+
+  // op: 'add'|'cancel'|'edit' を送信（氏名はidTokenで自動特定＝送らない）
+  function submitFixOp(op,target,type,time){
+    var msg=document.getElementById('f-msg');
+    var date=document.getElementById('f-date').value;
     var reason=document.getElementById('f-reason').value;
-    if(!date||!time){ msg.className='msg ng'; msg.textContent='対象の日と正しい時刻を入力してください。'; return; }
+    if(!date){ msg.className='msg ng'; msg.textContent='対象の日を選んでください。'; return; }
+    if((op==='add'||op==='edit')&&!time){ msg.className='msg ng'; msg.textContent='時刻を入力してください。'; return; }
     if(!idToken){ msg.className='msg ng'; msg.textContent='本人確認がまだです。LINEのメニューから開き直してください。'; return; }
-    btn.disabled=true; msg.className='msg'; msg.textContent='申請を送信中…';
-    postJson({source:'fix-request',idToken:idToken,date:date,type:type,time:time,reason:reason}).then(function(res){
-      btn.disabled=false;
-      if(res&&res.ok){ msg.className='msg ok'; msg.textContent='✅ '+(res.msg||'申請しました。承認をお待ちください。'); }
+    msg.className='msg'; msg.textContent='申請を送信中…';
+    postJson({source:'fix-request',op:op,idToken:idToken,date:date,target:target||'',type:type||'',time:time||'',reason:reason}).then(function(res){
+      if(res&&res.ok){ msg.className='msg ok'; msg.textContent='✅ '+(res.msg||'申請しました。承認をお待ちください。'); fixPending=null; loadMyPunches(); }
       else { msg.className='msg ng'; msg.textContent='⚠️ '+((res&&res.msg)||'申請に失敗しました。時間をおいて再度お試しください。'); }
-    }).catch(function(e){ btn.disabled=false; msg.className='msg ng'; msg.textContent='送信に失敗しました。通信環境を確認してください。\n'+e; });
+    }).catch(function(e){ msg.className='msg ng'; msg.textContent='送信に失敗しました。通信環境を確認してください。\n'+e; });
   }
 
   function load(){
