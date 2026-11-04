@@ -22,20 +22,54 @@
   .call .ca{color:#2e7d32}
   .soon{opacity:.72}.soon .ca{color:#94a3b8;font-size:12px;border:1px solid #cbd5e1;border-radius:999px;padding:3px 10px}
   .note{color:#94a3b8;font-size:12px;margin:8px 2px 0}.none{color:#94a3b8}
+  /* 申請フォーム */
+  .form{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+  .field{margin-bottom:14px}.field label{display:block;font-size:13px;font-weight:700;color:#5a6572;margin-bottom:6px}
+  input,select,textarea{width:100%;font-size:16px;padding:11px 12px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;color:#1a202c;box-sizing:border-box}
+  textarea{min-height:72px;resize:vertical}
+  .seg{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  button{width:100%;font-size:16px;font-weight:700;padding:15px;border:none;border-radius:12px;color:#fff;background:#1565c0;margin-top:4px}
+  button:disabled{opacity:.5}
+  .msg{padding:14px;border-radius:12px;background:#fff;border:1px solid #e2e8f0;font-size:15px;line-height:1.6;white-space:pre-wrap;margin-top:12px}
+  .msg.ok{color:#2e7d32;border-color:#b7e0bd}.msg.ng{color:#c0392b;border-color:#f3c9c2}
+  .notice{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:18px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
 </style>
 </head>
 <body>
 <div id="app"><p class="sub">読み込み中…</p></div>
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <script>
+  // ── 設定（案件固有。いずれも公開前提の値）────────────────────
+  var LIFF_ID = '2012312534-oQ6tgba9';
   var EXEC = 'https://script.google.com/macros/s/AKfycbxqryPSyt8qmx1It988kFLDp1QAFX9NzCse-JIErJpF4DrCntuyX2j3nc_v5NCFjwMuFA/exec';
+  // ───────────────────────────────────────────────────────────
   var VIEW_HTML = location.href.split('?')[0];
   var view = new URLSearchParams(location.search).get('view') || 'board';
   var app = document.getElementById('app');
+  var idToken = null;
+  var boardTimer = null;
   function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
-  function getJson(api){return fetch(EXEC+'?api='+api).then(function(r){return r.json();});}
+  // バックエンドへPOST（idTokenはボディで送る＝URLログにトークンを残さない）
+  function postApi(api){
+    return fetch(EXEC,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({api:api,idToken:idToken})}).then(function(r){return r.json();});
+  }
+  function postJson(payload){
+    return fetch(EXEC,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify(payload)}).then(function(r){return r.json();});
+  }
+
+  function renderNeedAuth(res){
+    var m=(res&&res.msg)||'本人確認が必要です。LINEのメニューから開いてください。';
+    app.innerHTML='<h1>🔒 本人確認が必要です</h1>'+
+      '<div class="notice"><p style="margin:0 0 6px">'+esc(m)+'</p>'+
+      '<p class="note">※氏名・出退勤時刻・有給残などは、連携済みのご本人／担当者にのみ表示します。'+
+      'LINEのリッチメニューから開き直してください。</p></div>';
+  }
 
   function renderBoard(d){
+    if(d&&d.needAuth){renderNeedAuth(d);return;}
     var h='<h1>📋 出勤簿（本日）</h1><p class="sub">'+esc(d.today)+'　最終更新 '+esc(d.updated)+'（30秒ごとに自動更新）</p>';
     if(!d.clubs.length) h+='<div class="club"><span class="none">クラブが未登録です。</span></div>';
     d.clubs.forEach(function(c){
@@ -54,7 +88,6 @@
       }
       h+='</div>';
     });
-    // 今月の配置充足（補助金「毎日3名」）—氏名なしのサマリ
     h+='<h2>📈 今月の配置充足（毎日3名）'+esc(d.month||'')+'</h2>';
     if(d.summary&&d.summary.length){
       h+='<div class="club"><table><tr><th>クラブ</th><th>開所日</th><th>3名充足</th><th>不足</th><th>充足率</th></tr>';
@@ -70,6 +103,7 @@
   }
 
   function renderContact(d){
+    if(d&&d.needAuth){renderNeedAuth(d);return;}
     var h='<h1>📞 連絡・会議</h1><p class="sub">急ぎの連絡はクラブへ直接。オンライン会議は今後追加予定です。</p><h2>各クラブへ電話</h2>';
     if(!d.clubs.length) h+='<div class="card none">クラブが未登録です</div>';
     d.clubs.forEach(function(c){
@@ -84,9 +118,10 @@
   }
 
   function renderYukyu(d){
-    var h='<h1>📊 有給の残日数</h1><p class="sub">個人別の付与・取得・残（残＝付与−取得）。※現在はデモ値です。</p>';
-    if(!d.people.length) h+='<div class="card none">有給台帳が未登録です</div>';
-    d.people.forEach(function(p){
+    if(d&&d.needAuth){renderNeedAuth(d);return;}
+    var h='<h1>📊 有給の残日数</h1><p class="sub">本人（担当者は全員分）の付与・取得・残（残＝付与−取得）。※現在はデモ値です。</p>';
+    if(!d.people||!d.people.length) h+='<div class="card none">表示できる有給データがありません</div>';
+    (d.people||[]).forEach(function(p){
       h+='<div class="card"><span class="cn">'+esc(p.name)+'</span><span class="ca">残 <b style="font-size:20px">'+esc(p.left)+'</b> 日 '+
         '<span style="color:#94a3b8;font-weight:600;font-size:12px">（付与'+esc(p.grant)+'・取得'+esc(p.taken)+'）</span></span></div>';
     });
@@ -97,8 +132,8 @@
   function renderShinsei(){
     var soon=function(i,l){return '<div class="card soon"><span class="cn">'+i+' '+l+'</span><span class="ca">準備中</span></div>';};
     var h='<h1>📝 各種申請</h1><p class="sub">打刻の修正は今すぐ申請できます。休暇・有給の申請は順次ここに追加します。</p>';
-    h+='<h2>打刻の修正</h2><a class="card" href="'+EXEC+'?view=fix" style="text-decoration:none"><span class="cn">🛠 打刻の修正を申請</span><span class="ca">申請する ›</span></a>';
-    h+='<p class="note">打刻を忘れたとき、正しい時刻で申請→管理者の承認で反映されます。</p>';
+    h+='<h2>打刻の修正</h2><a class="card" href="'+VIEW_HTML+'?view=fix" style="text-decoration:none"><span class="cn">🛠 打刻の修正を申請</span><span class="ca">申請する ›</span></a>';
+    h+='<p class="note">打刻を忘れたとき、正しい時刻で申請→上長・理事長/事務局長の承認で反映されます。お名前はLINEの本人確認から自動で判定します。</p>';
     h+='<h2>予定申請（事前に申請）</h2>'+soon('🌴','有給休暇の申請')+soon('🕑','半休の申請')+soon('🔁','振替・代休の申請');
     h+='<h2>当日申請（急ぎの連絡）</h2>'+soon('🤒','当日欠勤の連絡')+soon('🏃','遅刻の連絡')+soon('🏠','早退の連絡');
     h+='<h2>照会</h2><a class="card" href="'+VIEW_HTML+'?view=yukyu" style="text-decoration:none"><span class="cn">📊 有給の残日数を確認</span><span class="ca">見る ›</span></a>'+soon('🗂','申請状況を確認');
@@ -106,14 +141,67 @@
     app.innerHTML=h;
   }
 
+  // 打刻修正の申請フォーム（★氏名欄なし＝申請者はLINEの本人確認で自動特定。他人名義の申請は不可）
+  function renderFixForm(){
+    var d=new Date();
+    var today=d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);
+    var h='<h1>🛠 打刻の修正を申請</h1><p class="sub">正しい時刻を申請すると、上長→理事長/事務局長の承認で打刻ログに反映されます。</p>'+
+      '<div class="form">'+
+      '<div class="field"><label>対象の日</label><input type="date" id="f-date" value="'+today+'"></div>'+
+      '<div class="field"><label>種別</label><select id="f-type">'+
+        '<option value="出勤">出勤</option><option value="退勤">退勤</option>'+
+        '<option value="休憩開始">休憩開始</option><option value="休憩終了">休憩終了</option></select></div>'+
+      '<div class="field"><label>正しい時刻</label><input type="time" id="f-time"></div>'+
+      '<div class="field"><label>理由（任意）</label><textarea id="f-reason" placeholder="例）退勤の打刻を忘れたため"></textarea></div>'+
+      '<button id="f-submit">この内容で申請する</button>'+
+      '</div><p class="note">※お名前はLINEの本人確認から自動で判定します（入力不要）。</p>'+
+      '<div id="f-msg"></div>';
+    app.innerHTML=h;
+    document.getElementById('f-submit').addEventListener('click',submitFix);
+  }
+
+  function submitFix(){
+    var btn=document.getElementById('f-submit'), msg=document.getElementById('f-msg');
+    var date=document.getElementById('f-date').value;
+    var type=document.getElementById('f-type').value;
+    var time=document.getElementById('f-time').value;
+    var reason=document.getElementById('f-reason').value;
+    if(!date||!time){ msg.className='msg ng'; msg.textContent='対象の日と正しい時刻を入力してください。'; return; }
+    if(!idToken){ msg.className='msg ng'; msg.textContent='本人確認がまだです。LINEのメニューから開き直してください。'; return; }
+    btn.disabled=true; msg.className='msg'; msg.textContent='申請を送信中…';
+    postJson({source:'fix-request',idToken:idToken,date:date,type:type,time:time,reason:reason}).then(function(res){
+      btn.disabled=false;
+      if(res&&res.ok){ msg.className='msg ok'; msg.textContent='✅ '+(res.msg||'申請しました。承認をお待ちください。'); }
+      else { msg.className='msg ng'; msg.textContent='⚠️ '+((res&&res.msg)||'申請に失敗しました。時間をおいて再度お試しください。'); }
+    }).catch(function(e){ btn.disabled=false; msg.className='msg ng'; msg.textContent='送信に失敗しました。通信環境を確認してください。\n'+e; });
+  }
+
   function load(){
     if(view==='shinsei'){renderShinsei();return;}
-    var api=view, fn=view==='contact'?renderContact:(view==='yukyu'?renderYukyu:renderBoard);
-    if(view!=='contact'&&view!=='yukyu') api='board';
-    getJson(api).then(fn).catch(function(e){app.innerHTML='<p class="sub">読み込みに失敗しました。通信環境を確認して再読み込みしてください。<br>'+esc(e)+'</p>';});
+    if(view==='fix'){renderFixForm();return;}
+    var fn=view==='contact'?renderContact:(view==='yukyu'?renderYukyu:renderBoard);
+    var api=(view==='contact'||view==='yukyu')?view:'board';
+    postApi(api).then(fn).catch(function(e){app.innerHTML='<p class="sub">読み込みに失敗しました。通信環境を確認して再読み込みしてください。<br>'+esc(e)+'</p>';});
   }
-  load();
-  if(view==='board') setInterval(load, 30000); // 出勤簿は自動更新
+
+  // LIFF初期化 → idToken取得 → 画面描画（本人確認を全ビュー共通の前提にする）
+  function start(){
+    if(!window.liff){ app.innerHTML='<p class="sub">LIFF SDKを読み込めません（通信環境を確認してください）。</p>'; return; }
+    liff.init({liffId:LIFF_ID}).then(function(){
+      if(!liff.isLoggedIn()){ liff.login(); return; }
+      idToken=liff.getIDToken();
+      if(!idToken){
+        if(!sessionStorage.getItem('kp_relogin_v')){ sessionStorage.setItem('kp_relogin_v','1'); liff.login(); return; }
+        app.innerHTML='<p class="sub">本人確認トークンを取得できません。LIFFのScopeに「openid」が入っているかご確認ください。</p>'; return;
+      }
+      sessionStorage.removeItem('kp_relogin_v');
+      load();
+      if(view==='board'){ if(boardTimer) clearInterval(boardTimer); boardTimer=setInterval(load,30000); }
+    }).catch(function(e){
+      app.innerHTML='<p class="sub">初期化に失敗しました。LINEのメニューから開き直してください。<br>'+esc(e&&e.message?e.message:e)+'</p>';
+    });
+  }
+  start();
 </script>
 </body>
 </html>

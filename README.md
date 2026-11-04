@@ -12,3 +12,11 @@ LINE打刻用の静的LIFFページ（GitHub Pagesで配信）。
 
 ## デプロイ
 `main` ブランチ直下を GitHub Pages で配信。
+
+## 変更履歴
+
+### 2026-11-03（セキュリティ）view.html を LIFF 本人確認対応に刷新
+- **変更ファイル**: `view.html`
+- **内容**: 閲覧ページ（出勤簿/連絡/有給）を LIFF 対応に。`liff.init`→`getIDToken` を取得し、バックエンドへは **idToken を POST ボディで送付**（URLクエリにトークンを残さない）。未連携・無効トークンは `needAuth` 通知を表示。打刻修正は GAS フォームへの外部リンクをやめ、**氏名欄なしの LIFF 内フォーム**（申請者は idToken で自動特定）に置換。
+- **理由**: バックエンドが全閲覧API/申請を「連携済職員のみ（idToken検証）」に限定したため、フロントも本人確認トークンを送る必要がある。他人名義の申請・無認証の個人情報閲覧を防ぐ。
+- **前提**: LINEコンソールの LIFF Endpoint URL を Pages ルートに設定（リッチメニューは `liff.line.me/<id>/view.html?view=…` で開く）。
