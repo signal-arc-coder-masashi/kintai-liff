@@ -17,6 +17,8 @@
   button.leave { background:#5c6bc0; }
   button.brk { background:#78909c; }
   button:disabled { opacity:.5; }
+  .linkbtn { display:block; text-align:center; text-decoration:none; margin-top:12px; padding:13px 8px;
+             border:1px solid #cfd8e3; border-radius:12px; background:#fff; color:#1565c0; font-weight:700; font-size:15px; }
   #status { margin-top:22px; padding:16px; border-radius:12px; background:#fff;
             border:1px solid #e2e8f0; font-size:15px; line-height:1.6; min-height:24px; white-space:pre-wrap; }
   .ok { color:var(--ok); font-weight:700; }
@@ -36,6 +38,8 @@
     <button data-type="休憩開始" class="brk">休憩開始</button>
     <button data-type="休憩終了" class="brk">休憩終了</button>
   </div>
+
+  <a class="linkbtn" href="./view.html?view=mymonth">📅 当月の打刻状況を見る</a>
 
   <div id="status">準備中…</div>
   <div id="uidbox"></div>

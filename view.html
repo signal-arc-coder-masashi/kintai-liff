@@ -129,6 +129,24 @@
     app.innerHTML=h;
   }
 
+  // 当月の打刻状況（本人・20日〆期間の日別＋労働時間/時間外）
+  function mmdd(s){ s=String(s||''); var m=s.match(/^\d{4}-(\d{2})-(\d{2})/); return m?(Number(m[1])+'/'+Number(m[2])):s; }
+  function renderMyMonth(d){
+    if(d&&d.needAuth){renderNeedAuth(d);return;}
+    var t=(d&&d.totals)||{};
+    var h='<h1>📅 当月の打刻状況</h1><p class="sub">'+esc(d.label||'')+'（'+esc((d.period&&d.period.from)||'')+'〜'+esc((d.period&&d.period.to)||'')+'）　'+esc(d.name||'')+' さん</p>';
+    h+='<div class="club"><b>合計</b>　出勤 '+(t.days||0)+'日 ／ 実働 '+esc(t.work||'0:00')+' ／ 時間外 '+esc(t.ot||'0:00')+'（うち深夜 '+esc(t.otL||'0:00')+'）</div>';
+    var days=(d&&d.days)||[];
+    if(!days.length){ h+='<div class="club"><span class="none">この期間の打刻はまだありません。</span></div>'; app.innerHTML=h; return; }
+    h+='<div class="club"><table><tr><th>日付</th><th>出勤</th><th>休憩</th><th>退勤</th><th>実働</th><th>時間外</th></tr>';
+    days.forEach(function(p){
+      h+='<tr><td>'+esc(mmdd(p.date))+'</td><td>'+esc(p.in||'—')+'</td><td>'+esc(p.brk||'—')+'</td><td>'+esc(p.out||'—')+'</td><td>'+esc(p.work||'—')+'</td>'+
+        '<td class="'+(p.ot?'ng-txt':'')+'">'+esc(p.ot||'—')+'</td></tr>';
+    });
+    h+='</table></div><p class="note">※「当月」は給与と同じ20日〆（前月21〜当月20）。取消した打刻は除外。打刻の誤りは「各種申請 → 打刻の修正」から直せます。</p>';
+    app.innerHTML=h;
+  }
+
   function renderShinsei(){
     var soon=function(i,l){return '<div class="card soon"><span class="cn">'+i+' '+l+'</span><span class="ca">準備中</span></div>';};
     var h='<h1>📝 各種申請</h1><p class="sub">打刻の修正は今すぐ申請できます。休暇・有給の申請は順次ここに追加します。</p>';
@@ -136,8 +154,10 @@
     h+='<p class="note">打ち忘れの追加、押し間違いの取消、時刻の修正ができます。上長・理事長/事務局長の承認で反映されます。お名前はLINEの本人確認から自動で判定します。</p>';
     h+='<h2>予定申請（事前に申請）</h2>'+soon('🌴','有給休暇の申請')+soon('🕑','半休の申請')+soon('🔁','振替・代休の申請');
     h+='<h2>当日申請（急ぎの連絡）</h2>'+soon('🤒','当日欠勤の連絡')+soon('🏃','遅刻の連絡')+soon('🏠','早退の連絡');
-    h+='<h2>照会</h2><a class="card" href="'+VIEW_HTML+'?view=yukyu" style="text-decoration:none"><span class="cn">📊 有給の残日数を確認</span><span class="ca">見る ›</span></a>'+soon('🗂','申請状況を確認');
-    h+='<p class="note">※「有給の残日数を確認」は稼働（デモ）。ほかの「準備中」はPhase1で実装予定です。</p>';
+    h+='<h2>照会</h2>';
+    h+='<a class="card" href="'+VIEW_HTML+'?view=mymonth" style="text-decoration:none"><span class="cn">📅 当月の打刻状況</span><span class="ca">見る ›</span></a>';
+    h+='<a class="card" href="'+VIEW_HTML+'?view=yukyu" style="text-decoration:none"><span class="cn">📊 有給の残日数を確認</span><span class="ca">見る ›</span></a>'+soon('🗂','申請状況を確認');
+    h+='<p class="note">※「当月の打刻状況」は自分の当月（20日〆）の出退勤・労働時間・時間外を表示。「有給の残日数」は稼働（デモ）。</p>';
     app.innerHTML=h;
   }
 
@@ -231,6 +251,7 @@
   function load(){
     if(view==='shinsei'){renderShinsei();return;}
     if(view==='fix'){renderFixForm();return;}
+    if(view==='mymonth'){postApi('mymonth').then(renderMyMonth).catch(function(e){app.innerHTML='<p class="sub">読み込みに失敗しました。再読み込みしてください。<br>'+esc(e)+'</p>';});return;}
     var fn=view==='contact'?renderContact:(view==='yukyu'?renderYukyu:renderBoard);
     var api=(view==='contact'||view==='yukyu')?view:'board';
     postApi(api).then(fn).catch(function(e){app.innerHTML='<p class="sub">読み込みに失敗しました。通信環境を確認して再読み込みしてください。<br>'+esc(e)+'</p>';});
