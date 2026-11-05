@@ -8,12 +8,18 @@ LINE打刻用の静的LIFFページ（GitHub Pagesで配信）。
 - 守りはこのページの秘匿ではなく、バックエンドでの**id_token検証＋登録済みユーザー許可リスト**で担保する。
 
 ## 構成
-- `index.html` … LIFF初期化 → 位置情報取得 → バックエンドへPOST。
+- `index.html` … 打刻ページ。LIFF初期化 → 位置情報取得 → バックエンドへPOST。下部に「📅 当月の打刻状況を見る」リンク。
+- `view.html` … 閲覧/申請ページ（`?view=board/mymonth/shinsei/fix/yukyu/contact`）。LIFF本人確認（idToken）でバックエンドのPOST APIを呼ぶ。
 
 ## デプロイ
 `main` ブランチ直下を GitHub Pages で配信。
 
 ## 変更履歴
+
+### 2026-11-05 当月の打刻状況ビュー＋打刻修正の取消/時刻変更
+- **変更ファイル**: `view.html`, `index.html`
+- **内容**: `?view=mymonth`（`renderMyMonth`＝本人の当月20日〆の日別 出退勤・実働・時間外・合計）を追加。導線＝`index.html` 打刻ボタン下の「📅 当月の打刻状況を見る」（相対 `./view.html?view=mymonth`・LIFF内遷移で idToken 継続）＋各種申請→照会。あわせて `?view=fix` を「対象日→本人の打刻一覧（各行に取消/時刻を直す）＋打ち忘れ追加」に再構成（`op=add/cancel/edit` を `source:fix-request` で送信）。
+- **理由**: 職員が自分の当月勤務を確認でき、押し間違い（1日1回ガード下）を取消/修正で直せるようにするため。
 
 ### 2026-11-03（セキュリティ）view.html を LIFF 本人確認対応に刷新
 - **変更ファイル**: `view.html`
