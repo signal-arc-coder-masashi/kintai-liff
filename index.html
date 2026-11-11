@@ -26,6 +26,17 @@
   .spin { color:#667; }
   #uidbox { margin-top:12px; padding:10px; background:#f1f5f9; border-radius:8px;
             font:600 13px ui-monospace,Menlo,monospace; word-break:break-all; color:#0f172a; display:none; }
+  /* 2回目以降の打刻の確認モーダル（中抜け勤務の誤連打防止） */
+  .modal-ov { position:fixed; inset:0; background:rgba(0,0,0,.45); display:flex; align-items:center;
+              justify-content:center; padding:24px; z-index:50; }
+  .modal { background:#fff; border-radius:16px; max-width:360px; width:100%; padding:22px 20px;
+           box-shadow:0 10px 40px rgba(0,0,0,.25); }
+  .modal-ttl { font-size:16px; font-weight:700; margin:0 0 10px; color:#1a202c; }
+  .modal-msg { font-size:15px; line-height:1.7; color:#1a202c; margin:0 0 18px; }
+  .modal-btns { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .modal-btns button { font-size:16px; font-weight:700; padding:14px 8px; border:none; border-radius:12px; }
+  .modal-cancel { background:#eceff3; color:#5a6572; }
+  .modal-ok { background:var(--blue); color:#fff; }
 </style>
 </head>
 <body>
@@ -97,12 +108,32 @@
       }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
     }
 
-    function send(type, lat, lng) {
+    // 2回目以降の出勤/退勤の確認モーダル（中抜け勤務の誤連打防止）。OKで confirm:true 再送、やめるで中止。
+    function escHtml(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+    function showConfirmModal(type, message, onOk, onCancel) {
+      var ov = document.createElement('div');
+      ov.className = 'modal-ov';
+      ov.innerHTML =
+        '<div class="modal" role="dialog" aria-modal="true">' +
+          '<p class="modal-ttl">⏱ 本日2回目の' + escHtml(type) + 'です</p>' +
+          '<p class="modal-msg">' + escHtml(message).replace(/\n/g, '<br>') + '</p>' +
+          '<div class="modal-btns">' +
+            '<button type="button" class="modal-cancel">やめる</button>' +
+            '<button type="button" class="modal-ok">記録する</button>' +
+          '</div>' +
+        '</div>';
+      document.body.appendChild(ov);
+      function close() { if (ov.parentNode) ov.parentNode.removeChild(ov); }
+      ov.querySelector('.modal-ok').addEventListener('click', function () { close(); if (onOk) onOk(); });
+      ov.querySelector('.modal-cancel').addEventListener('click', function () { close(); if (onCancel) onCancel(); });
+    }
+
+    function send(type, lat, lng, confirm) {
       setStatus(type + 'を記録中…', 'spin');
       fetch(EXEC_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ source: 'liff-punch', idToken: idToken, type: type, lat: lat, lng: lng })
+        body: JSON.stringify({ source: 'liff-punch', idToken: idToken, type: type, lat: lat, lng: lng, confirm: confirm ? 1 : 0 })
       }).then(function (r) { return r.json(); }).then(function (res) {
         setBusy(false);
         if (res.ok) {
@@ -110,6 +141,12 @@
           setStatus('✅ ' + res.msg + (willClose ? '\n\nこの画面は自動で閉じます。' : ''), 'ok');
           uidEl.style.display = 'none';
           if (willClose) { setTimeout(function () { liff.closeWindow(); }, 2600); }
+        } else if (res.needConfirm) {
+          // 2回目以降の出勤/退勤＝確認モーダルを1回表示。位置情報は取得済みなので再利用（再取得しない）。
+          setStatus('確認してください。', 'spin');
+          showConfirmModal(type, res.msg || ('本日2回目の' + type + 'を記録しますか？'),
+            function () { setBusy(true); send(type, lat, lng, true); },
+            function () { setStatus('「' + type + '」の記録をやめました。', ''); });
         } else if (res.needRegister && res.uid) {
           setStatus('⚠️ ' + res.msg, 'ng');
           showUid(res.uid);
