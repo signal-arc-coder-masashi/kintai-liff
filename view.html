@@ -17,6 +17,9 @@
   th,td{text-align:left;padding:7px 6px;border-bottom:1px solid #eef1f4}
   th{color:#5a6572;font-size:12px;font-weight:600}
   .pres{color:#2e7d32;font-weight:700}.left{color:#94a3b8}.ng-txt{color:#c0392b;font-weight:700}
+  tr.subtot td{color:#5a6572;font-size:12px;background:#f8fafc}
+  .clubtot{text-align:right;color:#5a6572;font-size:13px;margin-top:8px;padding-right:2px}
+  .clubtot b{color:#1a202c}
   .card{display:flex;align-items:center;justify-content:space-between;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:16px;margin-bottom:12px;text-decoration:none;color:#1a202c;box-shadow:0 1px 3px rgba(0,0,0,.05)}
   .cn{font-size:16px;font-weight:700}.ca{font-size:15px;font-weight:700;color:#1565c0}
   .call .ca{color:#2e7d32}
@@ -76,13 +79,18 @@
       h+='<div class="club"><div class="chead"><span class="cname">🏫 '+esc(c.name)+'</span>'+
         '<span class="badge '+(c.ok?'ok':'ng')+'">今 '+c.present+'名在席 / 基準'+c.base+'　'+(c.ok?'○ 充足':'△ あと'+(c.base-c.present)+'名')+'</span></div>';
       if(c.people.length){
-        h+='<table><tr><th>氏名</th><th>出勤</th><th>休憩</th><th>退勤</th><th>状態</th></tr>';
+        h+='<table><tr><th>氏名</th><th>出勤</th><th>休憩</th><th>退勤</th><th>実働</th><th>状態</th></tr>';
         c.people.forEach(function(p){
-          var brk=(p.bs||p.be)?(esc(p.bs||'—')+'〜'+esc(p.be||'')):'—';
-          h+='<tr><td>'+esc(p.name)+'</td><td>'+esc(p.in||'—')+'</td><td>'+brk+'</td><td>'+esc(p.out||'—')+'</td>'+
-            '<td class="'+(p.present?'pres':'left')+'">'+(p.present?'● 在席':'退勤済')+'</td></tr>';
+          var rs=(p.rows&&p.rows.length)?p.rows:[{in:'',out:'',brk:'',work:''}];
+          rs.forEach(function(s,i){
+            h+='<tr><td>'+(i===0?esc(p.name):'')+'</td>'+
+              '<td>'+esc(s.in||'—')+'</td><td>'+esc(s.brk||'—')+'</td><td>'+esc(s.out||'—')+'</td><td>'+esc(s.work||'—')+'</td>'+
+              (i===0?('<td class="'+(p.present?'pres':'left')+'" rowspan="'+rs.length+'">'+(p.present?'● 在席':'退勤済')+'</td>'):'')+
+              '</tr>';
+          });
+          h+='<tr class="subtot"><td></td><td colspan="4">本日計 <b>'+esc(p.dayWork||'0:00')+'</b> ／ 月累計 '+esc(p.monthWork||'0:00')+'</td><td></td></tr>';
         });
-        h+='</table>';
+        h+='</table><div class="clubtot">クラブ計 実働 <b>'+esc(c.work||'0:00')+'</b></div>';
       }else{
         h+='<div class="none" style="font-size:13px;margin-top:4px">本日の打刻なし</div>';
       }
