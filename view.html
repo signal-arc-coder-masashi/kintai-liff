@@ -16,6 +16,9 @@
   table{width:100%;border-collapse:collapse;font-size:14px}
   th,td{text-align:left;padding:7px 6px;border-bottom:1px solid #eef1f4}
   th{color:#5a6572;font-size:12px;font-weight:600}
+  .alert{background:#FDE3DA;border:2px solid #D9381E;border-radius:14px;padding:14px 16px;margin:0 0 16px;color:#D9381E}
+  .alert b{font-size:15px}.alert ul{margin:8px 0 10px;padding-left:20px;font-size:15px;font-weight:700}
+  .alert a{display:inline-block;background:#D9381E;color:#fff;font-weight:700;font-size:14px;border-radius:999px;padding:8px 16px;text-decoration:none}
   .pres{color:#2e7d32;font-weight:700}.left{color:#94a3b8}.ng-txt{color:#c0392b;font-weight:700}
   tr.subtot td{color:#5a6572;font-size:12px;background:#f8fafc}
   .clubtot{text-align:right;color:#5a6572;font-size:13px;margin-top:8px;padding-right:2px}
@@ -74,6 +77,11 @@
   function renderBoard(d){
     if(d&&d.needAuth){renderNeedAuth(d);return;}
     var h='<h1>📋 出勤簿（本日）</h1><p class="sub">'+esc(d.today)+'　最終更新 '+esc(d.updated)+'（30秒ごとに自動更新）</p>';
+    if(d.myAlerts&&d.myAlerts.length){
+      h+='<div class="alert"><b>⚠ あなたの打刻に確認が必要です</b><ul>';
+      d.myAlerts.forEach(function(a){h+='<li>'+esc(a.md)+'　「'+esc(a.kind)+'」の打刻がありません</li>';});
+      h+='</ul><a href="'+VIEW_HTML+'?view=fix">打刻の修正を申請する ›</a></div>';
+    }
     if(!d.clubs.length) h+='<div class="club"><span class="none">クラブが未登録です。</span></div>';
     d.clubs.forEach(function(c){
       h+='<div class="club"><div class="chead"><span class="cname">🏫 '+esc(c.name)+'</span>'+
