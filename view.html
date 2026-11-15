@@ -39,6 +39,33 @@
   .msg{padding:14px;border-radius:12px;background:#fff;border:1px solid #e2e8f0;font-size:15px;line-height:1.6;white-space:pre-wrap;margin-top:12px}
   .msg.ok{color:#2e7d32;border-color:#b7e0bd}.msg.ng{color:#c0392b;border-color:#f3c9c2}
   .notice{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:18px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+  /* 当月の打刻状況：月の切替と出勤簿（A4縦1枚・印刷/PDF用） */
+  .mnav{display:flex;gap:8px;align-items:center;margin:0 0 12px}
+  .mnav button{width:auto;flex:0 0 auto;font-size:14px;padding:9px 14px;margin:0;background:#fff;color:#1565c0;border:1px solid #cbd5e1}
+  .mnav .cur{flex:1;text-align:center;font-weight:700;font-size:15px}
+  #sheet{display:none;background:#fff;color:#202124;padding:14px;margin:0 auto;max-width:760px;box-sizing:border-box}
+  body.preview #sheet{display:block;border:1px solid #cbd5e1}
+  body.preview .screen{display:none}
+  #sheet h1{font-size:18px;margin:0 0 2px;color:#202124}
+  #sheet .meta{font-size:11px;color:#5F6368;margin:0 0 10px}
+  #sheet table{width:100%;border-collapse:collapse;font-size:12px;margin:0 0 10px;table-layout:fixed}
+  #sheet th,#sheet td{border:1px solid #5F6368;padding:3px 4px;text-align:center;color:#202124;font-size:12px;height:17px}
+  #sheet th{background:#BDE3F8;font-weight:700}
+  #sheet td.memo{text-align:left}
+  #sheet tr.we td{background:#EEF7FD}
+  #sheet td.warn{background:#FDE3DA;color:#D9381E;font-weight:700}
+  #sheet .sign td{height:52px}
+  .pbar{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:14px;margin:0 auto 12px;max-width:760px;box-sizing:border-box}
+  .pbar p{font-size:13px;color:#5a6572;margin:8px 0 0;line-height:1.6}
+  @page{size:A4 portrait;margin:10mm}
+  @media print{
+    body{background:#fff;padding:0}
+    .screen,.pbar{display:none!important}
+    #sheet,body.preview #sheet{display:block!important;border:none;padding:0;max-width:none}
+    #sheet th,#sheet td{height:15px;padding:2px 4px}
+    #sheet .sign td{height:48px}
+    #sheet th,#sheet tr.we td,#sheet td.warn{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  }
 </style>
 </head>
 <body>
@@ -54,6 +81,9 @@
   var app = document.getElementById('app');
   var idToken = null;
   var boardTimer = null;
+  var qs = new URLSearchParams(location.search);
+  var printMode = qs.get('print') === '1';   // 外部ブラウザで開いた「印刷・PDF保存」用の表示
+  var curYm = '';                             // 今日時点の対象月（最初の読み込みで確定。これより先の月へは進めない）
   function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
   // バックエンドへPOST（idTokenはボディで送る＝URLログにトークンを残さない）
@@ -70,7 +100,7 @@
     var m=(res&&res.msg)||'本人確認が必要です。LINEのメニューから開いてください。';
     app.innerHTML='<h1>🔒 本人確認が必要です</h1>'+
       '<div class="notice"><p style="margin:0 0 6px">'+esc(m)+'</p>'+
-      '<p class="note">※氏名・出退勤時刻・有給残などは、連携済みのご本人／担当者にのみ表示します。'+
+      '<p class="note">※氏名・出退勤時刻・有休残などは、連携済みのご本人／担当者にのみ表示します。'+
       'LINEのリッチメニューから開き直してください。</p></div>';
   }
 
@@ -135,45 +165,127 @@
 
   function renderYukyu(d){
     if(d&&d.needAuth){renderNeedAuth(d);return;}
-    var h='<h1>📊 有給の残日数</h1><p class="sub">本人（担当者は全員分）の付与・取得・残（残＝付与−取得）。※現在はデモ値です。</p>';
-    if(!d.people||!d.people.length) h+='<div class="card none">表示できる有給データがありません</div>';
+    var h='<h1>📊 有休の残日数</h1><p class="sub">本人（担当者は全員分）の付与・取得・残（残＝付与−取得）。※現在はデモ値です。</p>';
+    if(!d.people||!d.people.length) h+='<div class="card none">表示できる有休データがありません</div>';
     (d.people||[]).forEach(function(p){
       h+='<div class="card"><span class="cn">'+esc(p.name)+'</span><span class="ca">残 <b style="font-size:20px">'+esc(p.left)+'</b> 日 '+
         '<span style="color:#94a3b8;font-weight:600;font-size:12px">（付与'+esc(p.grant)+'・取得'+esc(p.taken)+'）</span></span></div>';
     });
-    h+='<p class="note">※Phase1では、有給申請が承認されると「取得」が自動加算され、残が自動更新されます。</p>';
+    h+='<p class="note">※Phase1では、有休申請が承認されると「取得」が自動加算され、残が自動更新されます。</p>';
     app.innerHTML=h;
   }
 
   // 当月の打刻状況（本人・20日〆期間の日別＋労働時間/時間外）
   function mmdd(s){ s=String(s||''); var m=s.match(/^\d{4}-(\d{2})-(\d{2})/); return m?(Number(m[1])+'/'+Number(m[2])):s; }
-  function renderMyMonth(d){
-    if(d&&d.needAuth){renderNeedAuth(d);return;}
+  function ymOfTo(to){ var m=String(to||'').match(/^(\d{4})-(\d{2})/); return m?(m[1]+'-'+m[2]):''; }
+  function shiftYm(ym,delta){ var p=String(ym).split('-'); var y=Number(p[0]), m=Number(p[1])+delta; while(m<1){m+=12;y--;} while(m>12){m-=12;y++;} return y+'-'+(m<10?'0'+m:m); }
+  function p2(n){ return (n<10?'0':'')+n; }
+  // 期間（from〜to・'yyyy-MM-dd'）の日付を1日ずつ並べる
+  function periodDates(from,to){
+    var a=String(from).split('-'), out=[]; if(a.length<3) return out;
+    var d=new Date(Number(a[0]),Number(a[1])-1,Number(a[2]));
+    for(var i=0;i<40;i++){
+      var s=d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate());
+      if(s>to) break;
+      out.push({date:s, md:(d.getMonth()+1)+'/'+d.getDate(), wd:'日月火水木金土'.charAt(d.getDay()), we:(d.getDay()===0||d.getDay()===6)});
+      d=new Date(d.getFullYear(),d.getMonth(),d.getDate()+1);
+    }
+    return out;
+  }
+  function todayStr(){ var t=new Date(); return t.getFullYear()+'-'+p2(t.getMonth()+1)+'-'+p2(t.getDate()); }
+  // 出勤簿（A4縦1枚）。画面の一覧と同じデータ（mymonth）から作る＝数字は月次集計と同じ
+  function sheetHtml(d){
+    var t=d.totals||{}, per=d.period||{}, by={}, today=todayStr();
+    (d.days||[]).forEach(function(x){ by[x.date]=x; });
+    var closed = today > String(per.to||'');
+    var h='<h1>出勤簿　'+esc(d.label||'')+'</h1>';
+    h+='<p class="meta">期間 '+esc(per.from||'')+' 〜 '+esc(per.to||'')+'　／　'+(closed?'〆後':'途中経過（〆前）')+'　／　出力 '+esc(today)+'</p>';
+    h+='<table><tr><th>氏名</th><th>出勤日数</th><th>労働時間</th><th>時間外（普通）</th><th>時間外（深夜）</th></tr>';
+    h+='<tr><td>'+esc(d.name||'')+'</td><td>'+(t.days||0)+'</td><td>'+esc(t.work||'0:00')+'</td><td>'+esc(t.otN||'0:00')+'</td><td>'+esc(t.otL||'0:00')+'</td></tr></table>';
+    h+='<table><colgroup><col style="width:10%"><col style="width:8%"><col style="width:11%"><col style="width:11%"><col style="width:11%"><col style="width:11%"><col style="width:11%"><col></colgroup>';
+    h+='<tr><th>日付</th><th>曜日</th><th>出勤</th><th>退勤</th><th>休憩</th><th>実働</th><th>時間外</th><th>備考</th></tr>';
+    periodDates(per.from,per.to).forEach(function(dd){
+      var x=by[dd.date]||{}, memo='', warn=false;
+      if(x.noOut!==undefined){
+        // バックエンドの判定（月次集計の要確認と同じ。中抜けで最後の出勤だけ閉じていない日も拾う）
+        var ms=[]; if(x.noOut){ms.push('退勤の打刻なし');warn=true;} if(x.noIn){ms.push('出勤の打刻なし');warn=true;} if(x.open&&!x.noOut) ms.push('在席中');
+        memo=ms.join('・');
+      } else if(x.in&&!x.out){ if(dd.date<today){memo='退勤の打刻なし';warn=true;} else memo='在席中'; }   // 旧バックエンド向けの簡易判定
+      else if(!x.in&&x.out){ memo='出勤の打刻なし'; warn=true; }
+      h+='<tr'+(dd.we?' class="we"':'')+'><td>'+esc(dd.md)+'</td><td>'+esc(dd.wd)+'</td><td>'+esc(x.in||'')+'</td><td>'+esc(x.out||'')+'</td><td>'+esc(x.brk||'')+'</td><td>'+esc(x.work||'')+'</td><td>'+esc(x.ot||'')+'</td><td class="memo'+(warn?' warn':'')+'">'+esc(memo)+'</td></tr>';
+    });
+    h+='</table><table class="sign"><tr><th>本人確認</th><th>事務局確認</th></tr><tr><td></td><td></td></tr></table>';
+    return h;
+  }
+  function loadMyMonth(ym){
+    app.innerHTML='<p class="sub">読み込み中…</p>';
+    var body={api:'mymonth',idToken:idToken}; if(ym) body.ym=ym;
+    var noYm=!ym;
+    postJson(body).then(function(d){ renderMyMonth(d,noYm); }).catch(function(e){app.innerHTML='<p class="sub">読み込みに失敗しました。再読み込みしてください。<br>'+esc(e)+'</p>';});
+  }
+  // 印刷用（外部ブラウザ）で本人確認が切れていた時：1回だけログインし直して同じ月・同じ表示へ戻す
+  function reloginForPrint(){
+    if(sessionStorage.getItem('kp_print_relogin')) return false;
+    sessionStorage.setItem('kp_print_relogin','1');
+    try{ liff.logout(); }catch(e){}
+    liff.login({redirectUri:location.href});
+    return true;
+  }
+  function renderMyMonth(d,noYm){
+    if(d&&d.needAuth){ if(printMode&&reloginForPrint()) return; renderNeedAuth(d); return; }
+    sessionStorage.removeItem('kp_print_relogin');
     var t=(d&&d.totals)||{};
-    var h='<h1>📅 当月の打刻状況</h1><p class="sub">'+esc(d.label||'')+'（'+esc((d.period&&d.period.from)||'')+'〜'+esc((d.period&&d.period.to)||'')+'）　'+esc(d.name||'')+' さん</p>';
+    var ym=ymOfTo(d&&d.period&&d.period.to);
+    if(!ym){ app.innerHTML='<p class="sub">表示できる期間がありません。LINEのメニューから開き直してください。</p>'; return; }
+    if(noYm) curYm = ym;   // 月を指定せずに取った応答＝今の対象月（これより先へは進めない）
+    var h='<div class="screen">';
+    h+='<h1>📅 当月の打刻状況</h1><p class="sub">'+esc(d.label||'')+'（'+esc((d.period&&d.period.from)||'')+'〜'+esc((d.period&&d.period.to)||'')+'）　'+esc(d.name||'')+' さん</p>';
+    h+='<div class="mnav"><button type="button" id="mPrev">‹ 前の月</button><span class="cur">'+esc(d.label||'')+'</span><button type="button" id="mNext"'+((curYm&&ym>=curYm)?' disabled':'')+'>次の月 ›</button></div>';
     h+='<div class="club"><b>合計</b>　出勤 '+(t.days||0)+'日 ／ 実働 '+esc(t.work||'0:00')+' ／ 時間外 '+esc(t.ot||'0:00')+'（うち深夜 '+esc(t.otL||'0:00')+'）</div>';
     var days=(d&&d.days)||[];
-    if(!days.length){ h+='<div class="club"><span class="none">この期間の打刻はまだありません。</span></div>'; app.innerHTML=h; return; }
-    h+='<div class="club"><table><tr><th>日付</th><th>出勤</th><th>休憩</th><th>退勤</th><th>実働</th><th>時間外</th></tr>';
-    days.forEach(function(p){
-      h+='<tr><td>'+esc(mmdd(p.date))+'</td><td>'+esc(p.in||'—')+'</td><td>'+esc(p.brk||'—')+'</td><td>'+esc(p.out||'—')+'</td><td>'+esc(p.work||'—')+'</td>'+
-        '<td class="'+(p.ot?'ng-txt':'')+'">'+esc(p.ot||'—')+'</td></tr>';
-    });
-    h+='</table></div><p class="note">※「当月」は給与と同じ20日〆（前月21〜当月20）。取消した打刻は除外。打刻の誤りは「各種申請 → 打刻の修正」から直せます。</p>';
+    if(!days.length){ h+='<div class="club"><span class="none">この期間の打刻はまだありません。</span></div>'; }
+    else {
+      h+='<div class="club"><table><tr><th>日付</th><th>出勤</th><th>休憩</th><th>退勤</th><th>実働</th><th>時間外</th></tr>';
+      days.forEach(function(p){
+        h+='<tr><td>'+esc(mmdd(p.date))+'</td><td>'+esc(p.in||'—')+'</td><td>'+esc(p.brk||'—')+'</td><td>'+esc(p.out||'—')+'</td><td>'+esc(p.work||'—')+'</td>'+
+          '<td class="'+(p.ot?'ng-txt':'')+'">'+esc(p.ot||'—')+'</td></tr>';
+      });
+      h+='</table></div>';
+    }
+    h+='<button type="button" id="mPdf">出勤簿をPDFで保存・印刷</button>';
+    h+='<p class="note">※「当月」は給与と同じ20日〆（前月21〜当月20）。取消した打刻は除外。打刻の誤りは「各種申請 → 打刻の修正」から直せます。PDFはブラウザが開き、A4縦1枚の出勤簿を保存・印刷できます。</p>';
+    h+='</div>';
+    if(printMode){
+      h+='<div class="pbar"><button type="button" id="mPrint">印刷・PDFに保存</button><p>ボタンを押すと印刷の画面が開きます。iPhoneは印刷の画面で共有ボタンから「ファイルに保存」、Android・パソコンは送信先で「PDFに保存」を選んでください。</p>'+
+        '<button type="button" id="mBye" style="background:#fff;color:#5a6572;border:1px solid #cbd5e1;margin-top:10px">終わったら押す（このブラウザからログアウト）</button><p>ほかの人も使う端末では、必ず最後にログアウトしてください。</p></div>';
+    }
+    h+='<div id="sheet">'+sheetHtml(d)+'</div>';
     app.innerHTML=h;
+    if(printMode) document.body.classList.add('preview');
+    var prev=document.getElementById('mPrev'), next=document.getElementById('mNext'), pdf=document.getElementById('mPdf'), pr=document.getElementById('mPrint');
+    if(prev) prev.onclick=function(){ loadMyMonth(shiftYm(ym,-1)); };
+    if(next) next.onclick=function(){ loadMyMonth(shiftYm(ym,1)); };
+    if(pr) pr.onclick=function(){ window.print(); };
+    var bye=document.getElementById('mBye');
+    if(bye) bye.onclick=function(){ try{ liff.logout(); }catch(e){} document.body.classList.remove('preview'); app.innerHTML='<p class="sub">ログアウトしました。この画面は閉じてください。</p>'; };
+    if(pdf) pdf.onclick=function(){
+      // LINEの中の画面は印刷ができないため、標準のブラウザで出勤簿を開く（そこで本人確認をやり直す）
+      if(window.liff&&liff.isInClient&&liff.isInClient()){ liff.openWindow({url:VIEW_HTML+'?view=mymonth&ym='+encodeURIComponent(ym)+'&print=1',external:true}); }
+      else { window.print(); }
+    };
   }
 
   function renderShinsei(){
     var soon=function(i,l){return '<div class="card soon"><span class="cn">'+i+' '+l+'</span><span class="ca">準備中</span></div>';};
-    var h='<h1>📝 各種申請</h1><p class="sub">打刻の修正は今すぐ申請できます。休暇・有給の申請は順次ここに追加します。</p>';
+    var h='<h1>📝 各種申請</h1><p class="sub">打刻の修正は今すぐ申請できます。休暇・有休の申請は順次ここに追加します。</p>';
     h+='<h2>打刻の修正</h2><a class="card" href="'+VIEW_HTML+'?view=fix" style="text-decoration:none"><span class="cn">🛠 打刻の修正を申請</span><span class="ca">申請する ›</span></a>';
     h+='<p class="note">打ち忘れの追加、押し間違いの取消、時刻の修正ができます。上長・理事長/事務局長の承認で反映されます。お名前はLINEの本人確認から自動で判定します。</p>';
-    h+='<h2>予定申請（事前に申請）</h2>'+soon('🌴','有給休暇の申請')+soon('🕑','半休の申請')+soon('🔁','振替・代休の申請');
+    h+='<h2>予定申請（事前に申請）</h2>'+soon('🌴','有休の申請')+soon('🕑','半休の申請')+soon('🔁','振替・代休の申請');
     h+='<h2>当日申請（急ぎの連絡）</h2>'+soon('🤒','当日欠勤の連絡')+soon('🏃','遅刻の連絡')+soon('🏠','早退の連絡');
     h+='<h2>照会</h2>';
     h+='<a class="card" href="'+VIEW_HTML+'?view=mymonth" style="text-decoration:none"><span class="cn">📅 当月の打刻状況</span><span class="ca">見る ›</span></a>';
-    h+='<a class="card" href="'+VIEW_HTML+'?view=yukyu" style="text-decoration:none"><span class="cn">📊 有給の残日数を確認</span><span class="ca">見る ›</span></a>'+soon('🗂','申請状況を確認');
-    h+='<p class="note">※「当月の打刻状況」は自分の当月（20日〆）の出退勤・労働時間・時間外を表示。「有給の残日数」は稼働（デモ）。</p>';
+    h+='<a class="card" href="'+VIEW_HTML+'?view=yukyu" style="text-decoration:none"><span class="cn">📊 有休の残日数を確認</span><span class="ca">見る ›</span></a>'+soon('🗂','申請状況を確認');
+    h+='<p class="note">※「当月の打刻状況」は自分の当月（20日〆）の出退勤・労働時間・時間外を表示。「有休の残日数」は稼働（デモ）。</p>';
     app.innerHTML=h;
   }
 
@@ -267,7 +379,7 @@
   function load(){
     if(view==='shinsei'){renderShinsei();return;}
     if(view==='fix'){renderFixForm();return;}
-    if(view==='mymonth'){postApi('mymonth').then(renderMyMonth).catch(function(e){app.innerHTML='<p class="sub">読み込みに失敗しました。再読み込みしてください。<br>'+esc(e)+'</p>';});return;}
+    if(view==='mymonth'){loadMyMonth(/^\d{4}-\d{1,2}$/.test(qs.get('ym')||'')?qs.get('ym'):'');return;}
     var fn=view==='contact'?renderContact:(view==='yukyu'?renderYukyu:renderBoard);
     var api=(view==='contact'||view==='yukyu')?view:'board';
     postApi(api).then(fn).catch(function(e){app.innerHTML='<p class="sub">読み込みに失敗しました。通信環境を確認して再読み込みしてください。<br>'+esc(e)+'</p>';});
@@ -277,10 +389,11 @@
   function start(){
     if(!window.liff){ app.innerHTML='<p class="sub">LIFF SDKを読み込めません（通信環境を確認してください）。</p>'; return; }
     liff.init({liffId:LIFF_ID}).then(function(){
-      if(!liff.isLoggedIn()){ liff.login(); return; }
+      // 印刷用に外部ブラウザで開いた時は、ログイン後に同じ月・同じ表示へ戻す
+      if(!liff.isLoggedIn()){ if(printMode) liff.login({redirectUri:location.href}); else liff.login(); return; }
       idToken=liff.getIDToken();
       if(!idToken){
-        if(!sessionStorage.getItem('kp_relogin_v')){ sessionStorage.setItem('kp_relogin_v','1'); liff.login(); return; }
+        if(!sessionStorage.getItem('kp_relogin_v')){ sessionStorage.setItem('kp_relogin_v','1'); if(printMode) liff.login({redirectUri:location.href}); else liff.login(); return; }
         app.innerHTML='<p class="sub">本人確認トークンを取得できません。LIFFのScopeに「openid」が入っているかご確認ください。</p>'; return;
       }
       sessionStorage.removeItem('kp_relogin_v');
