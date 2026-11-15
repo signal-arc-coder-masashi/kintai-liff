@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
 <title>勤怠</title>
 <style>
   body{font-family:-apple-system,"Hiragino Kaku Gothic ProN",sans-serif;background:#f5f7fa;color:#1a202c;margin:0;padding:18px 14px 48px}
@@ -82,7 +83,8 @@
   var idToken = null;
   var boardTimer = null;
   var qs = new URLSearchParams(location.search);
-  var printMode = qs.get('print') === '1';   // 外部ブラウザで開いた「印刷・PDF保存」用の表示
+  var printMode = qs.get('print') === '1';   // 標準ブラウザで開いた「印刷・PDF保存」用の表示
+  var printTicket = /^[0-9a-f]{64}$/.test(qs.get('ticket')||'') ? qs.get('ticket') : '';   // LINEの中で発行した引換券（5分・1回限り）。あればLINEログインなしで出勤簿を出す
   var curYm = '';                             // 今日時点の対象月（最初の読み込みで確定。これより先の月へは進めない）
   function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
@@ -112,6 +114,7 @@
       d.myAlerts.forEach(function(a){h+='<li>'+esc(a.md)+'　「'+esc(a.kind)+'」の打刻がありません</li>';});
       h+='</ul><a href="'+VIEW_HTML+'?view=fix">打刻の修正を申請する ›</a></div>';
     }
+    h+='<a class="card" href="'+VIEW_HTML+'?view=mymonth" style="text-decoration:none"><span class="cn">🖨 自分の出勤簿（月ごと）をPDFで保存・印刷</span><span class="ca">開く ›</span></a>';
     if(!d.clubs.length) h+='<div class="club"><span class="none">クラブが未登録です。</span></div>';
     d.clubs.forEach(function(c){
       h+='<div class="club"><div class="chead"><span class="cname">🏫 '+esc(c.name)+'</span>'+
@@ -217,6 +220,17 @@
     h+='</table><table class="sign"><tr><th>本人確認</th><th>事務局確認</th></tr><tr><td></td><td></td></tr></table>';
     return h;
   }
+  // 標準ブラウザ：引換券と交換に出勤簿データを受け取る（LINEログインはしない）。再読み込みに備えてこのタブの中だけに控える
+  function loadByTicket(){
+    var key='kp_print_'+printTicket, saved=null;
+    try{ saved=JSON.parse(sessionStorage.getItem(key)||'null'); }catch(e){}
+    if(saved&&saved.ok){ renderMyMonth(saved,false); return; }
+    app.innerHTML='<p class="sub">出勤簿を読み込み中…</p>';
+    postJson({api:'myprint',ticket:printTicket}).then(function(d){
+      if(d&&d.ok){ try{ sessionStorage.setItem(key,JSON.stringify(d)); }catch(e){} renderMyMonth(d,false); return; }
+      app.innerHTML='<div class="notice"><b>出勤簿を表示できませんでした</b><p class="sub" style="margin:8px 0 0">'+esc((d&&d.msg)||'LINEの画面で、もう一度「出勤簿をPDFで保存・印刷」を押してください。')+'</p></div>';
+    }).catch(function(e){app.innerHTML='<p class="sub">読み込みに失敗しました。LINEの画面からもう一度お試しください。<br>'+esc(e)+'</p>';});
+  }
   function loadMyMonth(ym){
     app.innerHTML='<p class="sub">読み込み中…</p>';
     var body={api:'mymonth',idToken:idToken}; if(ym) body.ym=ym;
@@ -242,6 +256,7 @@
     h+='<h1>📅 当月の打刻状況</h1><p class="sub">'+esc(d.label||'')+'（'+esc((d.period&&d.period.from)||'')+'〜'+esc((d.period&&d.period.to)||'')+'）　'+esc(d.name||'')+' さん</p>';
     h+='<div class="mnav"><button type="button" id="mPrev">‹ 前の月</button><span class="cur">'+esc(d.label||'')+'</span><button type="button" id="mNext"'+((curYm&&ym>=curYm)?' disabled':'')+'>次の月 ›</button></div>';
     h+='<div class="club"><b>合計</b>　出勤 '+(t.days||0)+'日 ／ 実働 '+esc(t.work||'0:00')+' ／ 時間外 '+esc(t.ot||'0:00')+'（うち深夜 '+esc(t.otL||'0:00')+'）</div>';
+    h+='<button type="button" id="mPdf" style="margin:0 0 16px">🖨 この月の出勤簿をPDFで保存・印刷</button><div id="mPdfMsg" class="msg" style="display:none;margin:-8px 0 16px"></div>';
     var days=(d&&d.days)||[];
     if(!days.length){ h+='<div class="club"><span class="none">この期間の打刻はまだありません。</span></div>'; }
     else {
@@ -252,12 +267,11 @@
       });
       h+='</table></div>';
     }
-    h+='<button type="button" id="mPdf">出勤簿をPDFで保存・印刷</button>';
     h+='<p class="note">※「当月」は給与と同じ20日〆（前月21〜当月20）。取消した打刻は除外。打刻の誤りは「各種申請 → 打刻の修正」から直せます。PDFはブラウザが開き、A4縦1枚の出勤簿を保存・印刷できます。</p>';
     h+='</div>';
     if(printMode){
       h+='<div class="pbar"><button type="button" id="mPrint">印刷・PDFに保存</button><p>ボタンを押すと印刷の画面が開きます。iPhoneは印刷の画面で共有ボタンから「ファイルに保存」、Android・パソコンは送信先で「PDFに保存」を選んでください。</p>'+
-        '<button type="button" id="mBye" style="background:#fff;color:#5a6572;border:1px solid #cbd5e1;margin-top:10px">終わったら押す（このブラウザからログアウト）</button><p>ほかの人も使う端末では、必ず最後にログアウトしてください。</p></div>';
+        (printTicket?'<p>保存や印刷が終わったら、この画面は閉じてください。</p>':'<button type="button" id="mBye" style="background:#fff;color:#5a6572;border:1px solid #cbd5e1;margin-top:10px">終わったら押す（このブラウザからログアウト）</button><p>ほかの人も使う端末では、必ず最後にログアウトしてください。</p>')+'</div>';
     }
     h+='<div id="sheet">'+sheetHtml(d)+'</div>';
     app.innerHTML=h;
@@ -269,9 +283,15 @@
     var bye=document.getElementById('mBye');
     if(bye) bye.onclick=function(){ try{ liff.logout(); }catch(e){} document.body.classList.remove('preview'); app.innerHTML='<p class="sub">ログアウトしました。この画面は閉じてください。</p>'; };
     if(pdf) pdf.onclick=function(){
-      // LINEの中の画面は印刷ができないため、標準のブラウザで出勤簿を開く（そこで本人確認をやり直す）
-      if(window.liff&&liff.isInClient&&liff.isInClient()){ liff.openWindow({url:VIEW_HTML+'?view=mymonth&ym='+encodeURIComponent(ym)+'&print=1',external:true}); }
-      else { window.print(); }
+      // LINEの中の画面は印刷ができないため、標準のブラウザで出勤簿を開く。
+      // 本人確認はLINEの中で済ませ、5分・1回限りの引換券を付けて開く（ブラウザ側でLINEログインをやり直さない）
+      if(!(window.liff&&liff.isInClient&&liff.isInClient())){ window.print(); return; }
+      pdf.disabled=true; var label=pdf.textContent; pdf.textContent='準備中…';
+      var done=function(msg){ pdf.disabled=false; pdf.textContent=label; if(msg){ var m=document.getElementById('mPdfMsg'); if(m){ m.className='msg ng'; m.style.display='block'; m.textContent=msg; } } };
+      postJson({api:'printticket',idToken:idToken,ym:ym}).then(function(r){
+        if(r&&r.ok&&r.ticket){ done(''); liff.openWindow({url:VIEW_HTML+'?view=mymonth&print=1&ticket='+r.ticket,external:true}); }
+        else done((r&&r.msg&&r.msg!=='unknown api')?r.msg:'出勤簿を開けませんでした。少し待ってから、もう一度押してください。');
+      }).catch(function(){ done('通信に失敗しました。電波の良い所で、もう一度押してください。'); });
     };
   }
 
@@ -283,7 +303,7 @@
     h+='<h2>予定申請（事前に申請）</h2>'+soon('🌴','有休の申請')+soon('🕑','半休の申請')+soon('🔁','振替・代休の申請');
     h+='<h2>当日申請（急ぎの連絡）</h2>'+soon('🤒','当日欠勤の連絡')+soon('🏃','遅刻の連絡')+soon('🏠','早退の連絡');
     h+='<h2>照会</h2>';
-    h+='<a class="card" href="'+VIEW_HTML+'?view=mymonth" style="text-decoration:none"><span class="cn">📅 当月の打刻状況</span><span class="ca">見る ›</span></a>';
+    h+='<a class="card" href="'+VIEW_HTML+'?view=mymonth" style="text-decoration:none"><span class="cn">📅 当月の打刻状況・出勤簿PDF</span><span class="ca">見る ›</span></a>';
     h+='<a class="card" href="'+VIEW_HTML+'?view=yukyu" style="text-decoration:none"><span class="cn">📊 有休の残日数を確認</span><span class="ca">見る ›</span></a>'+soon('🗂','申請状況を確認');
     h+='<p class="note">※「当月の打刻状況」は自分の当月（20日〆）の出退勤・労働時間・時間外を表示。「有休の残日数」は稼働（デモ）。</p>';
     app.innerHTML=h;
@@ -387,6 +407,7 @@
 
   // LIFF初期化 → idToken取得 → 画面描画（本人確認を全ビュー共通の前提にする）
   function start(){
+    if(printMode&&printTicket&&view==='mymonth'){ loadByTicket(); return; }   // 標準ブラウザ＋引換券：LINEログインなしで出勤簿だけ出す
     if(!window.liff){ app.innerHTML='<p class="sub">LIFF SDKを読み込めません（通信環境を確認してください）。</p>'; return; }
     liff.init({liffId:LIFF_ID}).then(function(){
       // 印刷用に外部ブラウザで開いた時は、ログイン後に同じ月・同じ表示へ戻す
