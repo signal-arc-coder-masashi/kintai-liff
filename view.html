@@ -86,7 +86,7 @@
   var printMode = qs.get('print') === '1';   // 標準ブラウザで開いた「印刷・PDF保存」用の表示
   var printTicket = /^[0-9a-f]{64}$/.test(qs.get('ticket')||'') ? qs.get('ticket') : '';   // LINEの中で発行した引換券（5分・1回限り）。あればLINEログインなしで出勤簿を出す
   var curYm = '';                             // 今日時点の対象月（最初の読み込みで確定。これより先の月へは進めない）
-  function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+  function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 
   // バックエンドへPOST（idTokenはボディで送る＝URLログにトークンを残さない）
   function postApi(api){
@@ -166,16 +166,90 @@
     app.innerHTML=h;
   }
 
+  // 有休：残日数の確認＋申請（全日／半日／時間）＋自分の申請の一覧・取り下げ
+  var ykData=null;
+  function loadYukyu(){
+    postJson({api:'yukyuform',idToken:idToken}).then(renderYukyu).catch(function(e){app.innerHTML='<p class="sub">読み込みに失敗しました。通信環境を確認して再読み込みしてください。<br>'+esc(e)+'</p>';});
+  }
+  function ykDays(kind,hours){   // 画面での目安（最終の判定はバックエンド）
+    if(kind==='全日') return 1; if(kind==='半日') return 0.5;
+    var h=Number(hours); if(kind==='時間'&&h>0&&ykData&&ykData.shotei>0) return Math.round(h/ykData.shotei*10000)/10000;
+    return 0;
+  }
   function renderYukyu(d){
     if(d&&d.needAuth){renderNeedAuth(d);return;}
-    var h='<h1>📊 有休の残日数</h1><p class="sub">本人（担当者は全員分）の付与・取得・残（残＝付与−取得）。※現在はデモ値です。</p>';
-    if(!d.people||!d.people.length) h+='<div class="card none">表示できる有休データがありません</div>';
-    (d.people||[]).forEach(function(p){
-      h+='<div class="card"><span class="cn">'+esc(p.name)+'</span><span class="ca">残 <b style="font-size:20px">'+esc(p.left)+'</b> 日 '+
-        '<span style="color:#94a3b8;font-weight:600;font-size:12px">（付与'+esc(p.grant)+'・取得'+esc(p.taken)+'）</span></span></div>';
-    });
-    h+='<p class="note">※Phase1では、有休申請が承認されると「取得」が自動加算され、残が自動更新されます。</p>';
+    if(!d||!d.ok){ app.innerHTML='<p class="sub">'+esc((d&&d.msg)||'表示できませんでした。時間をおいて再度お試しください。')+'</p>'; return; }
+    ykData=d;
+    var h='<h1>🌴 有休の残日数・申請</h1><p class="sub">'+esc(d.name||'')+' さん</p>';
+    if(!d.granted){
+      h+='<div class="alert"><b>⚠ 有休の付与がまだ登録されていません</b><p style="margin:8px 0 0;font-size:14px;font-weight:400;color:#1a202c">事務局が付与日数を登録すると、ここに残日数が出て申請できるようになります。</p></div>';
+    } else {
+      h+='<div class="club"><div class="chead"><span class="cname">申請できる日数</span><span class="badge '+(d.available>0?'ok':'ng')+'">'+esc(d.available)+' 日</span></div>'+
+         '<table><tr><th>残日数</th><th>承認待ち</th><th>取得済み</th><th>次の付与日</th></tr><tr><td>'+esc(d.left)+' 日</td><td>'+esc(d.pending)+' 日</td><td>'+esc(d.taken)+' 日</td><td>'+esc(d.nextGrant||'—')+'</td></tr></table></div>';
+      h+='<h2>有休を申請する</h2><div class="form">'+
+         '<div class="field"><label>取得日</label><input type="date" id="y-date"></div>'+
+         '<div class="field"><label>種別</label><select id="y-kind"><option value="全日">全日（1日）</option><option value="半日">半日（0.5日）</option>'+(d.shotei>0?'<option value="時間">時間単位</option>':'')+'</select></div>'+
+         '<div class="field" id="y-hours-wrap" style="display:none"><label>時間数（1日の所定 '+esc(d.shotei)+' 時間）</label><input type="number" id="y-hours" min="1" step="1" inputmode="numeric" placeholder="例：2（1時間単位）"></div>'+
+         '<div id="y-warn" class="msg ng" style="display:none;margin:0 0 12px"></div>'+
+         '<button type="button" id="y-send">申請する</button>'+
+         '<p class="note">※承認は 上長 → 最終承認 の順です。毎月'+esc(d.cutoffDay)+'日までに承認が済んだ分が、その月（20日〆）の給与に反映されます。休む理由の入力は不要です。</p>'+
+         '<div id="y-msg" class="msg" style="display:none"></div></div>';
+    }
+    h+='<h2>自分の申請</h2>';
+    var rq=d.requests||[];
+    if(!rq.length) h+='<div class="club"><span class="none">申請はまだありません。</span></div>';
+    else {
+      h+='<div class="club"><table><tr><th>取得日</th><th>種別</th><th>日数</th><th>状態</th><th></th></tr>';
+      rq.forEach(function(r){
+        var st=String(r.status||''), cls=(st==='成立')?'pres':((st==='却下')?'ng-txt':'');
+        h+='<tr><td>'+esc(mmdd(r.date))+'</td><td>'+esc(r.kind)+(r.kind==='時間'?'（'+esc(r.hours)+'h）':'')+'</td><td>'+esc(r.days)+'</td><td class="'+cls+'">'+esc(st==='成立'?'承認済み':st)+'</td>'+
+           '<td>'+(r.canCancel?'<a href="#" data-yk-cancel="'+esc(r.id)+'" style="color:#c0392b;font-weight:700;text-decoration:none">取り下げ</a>':'')+'</td></tr>';
+      });
+      h+='</table></div><p class="note">※承認済みの有休を取り消したい時は、事務局にご連絡ください。</p>';
+    }
+    var tm=d.team||[];
+    if(tm.length){   // 組織図に載っている管理者だけ：担当範囲の職員の残日数
+      h+='<h2>担当範囲の残日数（管理者向け）</h2><div class="club"><table><tr><th>氏名</th><th>残</th><th>承認待ち</th><th>次の付与日</th></tr>';
+      tm.forEach(function(p){
+        h+='<tr><td>'+esc(p.name)+'<br><span style="color:#94a3b8;font-size:11px">'+esc(p.club)+'</span></td>'+
+           (p.granted?('<td class="'+(p.left<0?'ng-txt':'')+'">'+esc(p.left)+' 日</td>'):'<td class="none">未登録</td>')+
+           '<td>'+(p.pending?esc(p.pending)+' 日':'—')+'</td><td>'+esc(p.nextGrant||'—')+'</td></tr>';
+      });
+      h+='</table></div><p class="note">※全員分の詳しい内容は、出勤簿ブックの「有休台帳」で確認できます。</p>';
+    }
     app.innerHTML=h;
+    var kind=document.getElementById('y-kind'), hw=document.getElementById('y-hours-wrap'), hrs=document.getElementById('y-hours'),
+        warn=document.getElementById('y-warn'), send=document.getElementById('y-send'), msg=document.getElementById('y-msg'), dt=document.getElementById('y-date');
+    function check(){   // 残日数が足りない時は ⚠ を出して送れないようにする
+      if(!send) return;
+      var days=ykDays(kind.value,hrs?hrs.value:''), short=days>0&&days>d.available;
+      hw.style.display=(kind.value==='時間')?'block':'none';
+      warn.style.display=short?'block':'none';
+      warn.textContent=short?('⚠ 残日数が足りないため申請できません（申請 '+days+'日 ／ 申請できる日数 '+d.available+'日）。事務局にご相談ください。'):'';
+      send.disabled=short||d.available<=0;
+      if(d.available<=0){ warn.style.display='block'; warn.textContent='⚠ 申請できる日数がありません（残 '+d.left+'日・承認待ち '+d.pending+'日）。事務局にご相談ください。'; }
+    }
+    if(send){
+      kind.addEventListener('change',check); if(hrs) hrs.addEventListener('input',check); check();
+      send.addEventListener('click',function(){
+        if(!dt.value){ msg.style.display='block'; msg.className='msg ng'; msg.textContent='⚠️ 取得日を入れてください。'; return; }
+        send.disabled=true; msg.style.display='block'; msg.className='msg'; msg.textContent='送信中…';
+        postJson({source:'yukyu-request',idToken:idToken,date:dt.value,kind:kind.value,hours:(kind.value==='時間'&&hrs)?hrs.value:''}).then(function(res){
+          if(res&&res.ok){ msg.className='msg ok'; msg.textContent='✅ '+(res.msg||'申請しました。承認をお待ちください。'); setTimeout(loadYukyu,1500); }
+          else { msg.className='msg ng'; msg.textContent=(res&&res.msg)||'⚠️ 申請に失敗しました。時間をおいて再度お試しください。'; send.disabled=false; check(); }
+        }).catch(function(e){ msg.className='msg ng'; msg.textContent='送信に失敗しました。通信環境を確認してください。\n'+e; send.disabled=false; });
+      });
+    }
+    app.querySelectorAll('[data-yk-cancel]').forEach(function(a){
+      a.addEventListener('click',function(ev){
+        ev.preventDefault();
+        if(!window.confirm('この申請を取り下げますか？')) return;
+        postJson({api:'yukyucancel',idToken:idToken,id:a.getAttribute('data-yk-cancel')}).then(function(res){
+          if(!(res&&res.ok)) window.alert((res&&res.msg)||'取り下げできませんでした。');
+          loadYukyu();
+        }).catch(function(){ window.alert('通信に失敗しました。もう一度お試しください。'); });
+      });
+    });
   }
 
   // 当月の打刻状況（本人・20日〆期間の日別＋労働時間/時間外）
@@ -300,12 +374,12 @@
     var h='<h1>📝 各種申請</h1><p class="sub">打刻の修正は今すぐ申請できます。休暇・有休の申請は順次ここに追加します。</p>';
     h+='<h2>打刻の修正</h2><a class="card" href="'+VIEW_HTML+'?view=fix" style="text-decoration:none"><span class="cn">🛠 打刻の修正を申請</span><span class="ca">申請する ›</span></a>';
     h+='<p class="note">打ち忘れの追加、押し間違いの取消、時刻の修正ができます。上長・理事長/事務局長の承認で反映されます。お名前はLINEの本人確認から自動で判定します。</p>';
-    h+='<h2>予定申請（事前に申請）</h2>'+soon('🌴','有休の申請')+soon('🕑','半休の申請')+soon('🔁','振替・代休の申請');
+    h+='<h2>予定申請（事前に申請）</h2>'+'<a class="card" href="'+VIEW_HTML+'?view=yukyu" style="text-decoration:none"><span class="cn">🌴 有休の申請（全日・半日・時間）</span><span class="ca">申請 ›</span></a>'+soon('🔁','振替・代休の申請');
     h+='<h2>当日申請（急ぎの連絡）</h2>'+soon('🤒','当日欠勤の連絡')+soon('🏃','遅刻の連絡')+soon('🏠','早退の連絡');
     h+='<h2>照会</h2>';
     h+='<a class="card" href="'+VIEW_HTML+'?view=mymonth" style="text-decoration:none"><span class="cn">📅 当月の打刻状況・出勤簿PDF</span><span class="ca">見る ›</span></a>';
-    h+='<a class="card" href="'+VIEW_HTML+'?view=yukyu" style="text-decoration:none"><span class="cn">📊 有休の残日数を確認</span><span class="ca">見る ›</span></a>'+soon('🗂','申請状況を確認');
-    h+='<p class="note">※「当月の打刻状況」は自分の当月（20日〆）の出退勤・労働時間・時間外を表示。「有休の残日数」は稼働（デモ）。</p>';
+    h+='<a class="card" href="'+VIEW_HTML+'?view=yukyu" style="text-decoration:none"><span class="cn">📊 有休の残日数・申請の状況</span><span class="ca">見る ›</span></a>';
+    h+='<p class="note">※「当月の打刻状況」は自分の当月（20日〆）の出退勤・労働時間・時間外を表示。有休は、事務局が付与日数を登録すると申請できます。</p>';
     app.innerHTML=h;
   }
 
@@ -400,8 +474,9 @@
     if(view==='shinsei'){renderShinsei();return;}
     if(view==='fix'){renderFixForm();return;}
     if(view==='mymonth'){loadMyMonth(/^\d{4}-\d{1,2}$/.test(qs.get('ym')||'')?qs.get('ym'):'');return;}
-    var fn=view==='contact'?renderContact:(view==='yukyu'?renderYukyu:renderBoard);
-    var api=(view==='contact'||view==='yukyu')?view:'board';
+    if(view==='yukyu'){loadYukyu();return;}
+    var fn=view==='contact'?renderContact:renderBoard;
+    var api=(view==='contact')?view:'board';
     postApi(api).then(fn).catch(function(e){app.innerHTML='<p class="sub">読み込みに失敗しました。通信環境を確認して再読み込みしてください。<br>'+esc(e)+'</p>';});
   }
 
