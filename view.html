@@ -456,6 +456,7 @@
   }
 
   // op: 'add'|'cancel'|'edit' を送信（氏名はidTokenで自動特定＝送らない）
+  var fixSending=false;
   function submitFixOp(op,target,type,time){
     var msg=document.getElementById('f-msg');
     var date=document.getElementById('f-date').value;
@@ -463,11 +464,16 @@
     if(!date){ msg.className='msg ng'; msg.textContent='対象の日を選んでください。'; return; }
     if((op==='add'||op==='edit')&&!time){ msg.className='msg ng'; msg.textContent='時刻を入力してください。'; return; }
     if(!idToken){ msg.className='msg ng'; msg.textContent='本人確認がまだです。LINEのメニューから開き直してください。'; return; }
-    msg.className='msg'; msg.textContent='申請を送信中…';
+    if(fixSending) return;                                   // 送信中は重ねて送らない（連打で同じ申請が何件もできるのを防ぐ）
+    fixSending=true;
+    var lock=function(on){ var bs=app.querySelectorAll('button'); for(var i=0;i<bs.length;i++) bs[i].disabled=on; };
+    lock(true);
+    msg.className='msg'; msg.textContent='申請を送信中…（そのままお待ちください）';
     postJson({source:'fix-request',op:op,idToken:idToken,date:date,target:target||'',type:type||'',time:time||'',reason:reason}).then(function(res){
+      fixSending=false; lock(false);
       if(res&&res.ok){ msg.className='msg ok'; msg.textContent='✅ '+(res.msg||'申請しました。承認をお待ちください。'); fixPending=null; loadMyPunches(); }
       else { msg.className='msg ng'; msg.textContent='⚠️ '+((res&&res.msg)||'申請に失敗しました。時間をおいて再度お試しください。'); }
-    }).catch(function(e){ msg.className='msg ng'; msg.textContent='送信に失敗しました。通信環境を確認してください。\n'+e; });
+    }).catch(function(e){ fixSending=false; lock(false); msg.className='msg ng'; msg.textContent='送信に失敗しました。通信環境を確認してください。\n'+e; });
   }
 
   function load(){
