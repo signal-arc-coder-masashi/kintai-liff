@@ -15,7 +15,8 @@
   button { font-size:17px; font-weight:700; padding:18px 8px; border:none; border-radius:14px;
            color:#fff; background:var(--blue); }
   button.leave { background:#5c6bc0; }
-  button.brk { background:#78909c; }
+  .brknote { margin:14px 0 0; padding:12px 14px; border-radius:12px; background:#eef5fb; color:#33475b; font-size:13px; line-height:1.7; }
+  .brknote a { color:#1565c0; font-weight:700; }
   button:disabled { opacity:.5; }
   .linkbtn { display:block; text-align:center; text-decoration:none; margin-top:12px; padding:13px 8px;
              border:1px solid #cfd8e3; border-radius:12px; background:#fff; color:#1565c0; font-weight:700; font-size:15px; }
@@ -46,9 +47,8 @@
   <div class="btns">
     <button data-type="出勤">出勤</button>
     <button data-type="退勤" class="leave">退勤</button>
-    <button data-type="休憩開始" class="brk">休憩開始</button>
-    <button data-type="休憩終了" class="brk">休憩終了</button>
   </div>
+  <p class="brknote">☕ 休憩は自動でつきます（出勤から退勤までが9時間以上の日は60分、6時間45分を超える日は45分。休憩の打刻は不要です）。<br>その分を取れなかった日だけ <a href="./view.html?view=brk">休憩が取れなかった日の申請</a> を出してください。</p>
 
   <a class="linkbtn" href="./view.html?view=mymonth">📅 当月の打刻状況・出勤簿PDFを見る</a>
 

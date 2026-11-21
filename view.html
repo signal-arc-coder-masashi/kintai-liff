@@ -286,6 +286,7 @@
       if(x.noOut!==undefined){
         // バックエンドの判定（月次集計の要確認と同じ。中抜けで最後の出勤だけ閉じていない日も拾う）
         var ms=[]; if(x.noOut){ms.push('退勤の打刻なし');warn=true;} if(x.noIn){ms.push('出勤の打刻なし');warn=true;} if(x.open&&!x.noOut) ms.push('在席中');
+        if(x.brkNote) ms.push(x.brkNote);
         memo=ms.join('・');
       } else if(x.in&&!x.out){ if(dd.date<today){memo='退勤の打刻なし';warn=true;} else memo='在席中'; }   // 旧バックエンド向けの簡易判定
       else if(!x.in&&x.out){ memo='出勤の打刻なし'; warn=true; }
@@ -336,12 +337,12 @@
     else {
       h+='<div class="club"><table><tr><th>日付</th><th>出勤</th><th>休憩</th><th>退勤</th><th>実働</th><th>時間外</th></tr>';
       days.forEach(function(p){
-        h+='<tr><td>'+esc(mmdd(p.date))+'</td><td>'+esc(p.in||'—')+'</td><td>'+esc(p.brk||'—')+'</td><td>'+esc(p.out||'—')+'</td><td>'+esc(p.work||'—')+'</td>'+
+        h+='<tr><td>'+esc(mmdd(p.date))+'</td><td>'+esc(p.in||'—')+'</td><td>'+esc(p.brk||'—')+(p.brkNote?'<br><small>（申請）</small>':'')+'</td><td>'+esc(p.out||'—')+'</td><td>'+esc(p.work||'—')+'</td>'+
           '<td class="'+(p.ot?'ng-txt':'')+'">'+esc(p.ot||'—')+'</td></tr>';
       });
       h+='</table></div>';
     }
-    h+='<p class="note">※「当月」は給与と同じ20日〆（前月21〜当月20）。取消した打刻は除外。打刻の誤りは「各種申請 → 打刻の修正」から直せます。PDFはブラウザが開き、A4縦1枚の出勤簿を保存・印刷できます。</p>';
+    h+='<p class="note">※「当月」は給与と同じ20日〆（前月21〜当月20）。取消した打刻は除外。打刻の誤りは「各種申請 → 打刻の修正」から直せます。休憩は自動でつきます（出勤から退勤までが9時間以上の日は60分、6時間45分を超える日は45分。取れなかった日は「各種申請 → 休憩が取れなかった日の申請」）。PDFはブラウザが開き、A4縦1枚の出勤簿を保存・印刷できます。</p>';
     h+='</div>';
     if(printMode){
       h+='<div class="pbar"><button type="button" id="mPrint">印刷・PDFに保存</button><p>ボタンを押すと印刷の画面が開きます。iPhoneは印刷の画面で共有ボタンから「ファイルに保存」、Android・パソコンは送信先で「PDFに保存」を選んでください。</p>'+
@@ -374,6 +375,8 @@
     var h='<h1>📝 各種申請</h1><p class="sub">打刻の修正は今すぐ申請できます。休暇・有休の申請は順次ここに追加します。</p>';
     h+='<h2>打刻の修正</h2><a class="card" href="'+VIEW_HTML+'?view=fix" style="text-decoration:none"><span class="cn">🛠 打刻の修正を申請</span><span class="ca">申請する ›</span></a>';
     h+='<p class="note">打ち忘れの追加、押し間違いの取消、時刻の修正ができます。上長・理事長/事務局長の承認で反映されます。お名前はLINEの本人確認から自動で判定します。</p>';
+    h+='<h2>休憩</h2><a class="card" href="'+VIEW_HTML+'?view=brk" style="text-decoration:none"><span class="cn">☕ 休憩が取れなかった日の申請</span><span class="ca">申請する ›</span></a>'+
+       '<p class="note">※休憩は自動でつきます（出勤から退勤までが9時間以上の日は60分、6時間45分を超える日は45分。休憩の打刻は不要です）。1日保育のおでかけなどで、その分を取れなかった日だけ申請してください。</p>';
     h+='<h2>予定申請（事前に申請）</h2>'+'<a class="card" href="'+VIEW_HTML+'?view=yukyu" style="text-decoration:none"><span class="cn">🌴 有休の申請（全日・半日・時間）</span><span class="ca">申請 ›</span></a>'+soon('🔁','振替・代休の申請');
     h+='<h2>当日申請（急ぎの連絡）</h2>'+soon('🤒','当日欠勤の連絡')+soon('🏃','遅刻の連絡')+soon('🏠','早退の連絡');
     h+='<h2>照会</h2>';
@@ -430,14 +433,15 @@
     if(!fixPunches.length){ box.innerHTML='<p class="none" style="font-size:13px">この日の打刻はありません。打ち忘れは下の「追加」からどうぞ。</p>'; return; }
     var h='';
     fixPunches.forEach(function(p,i){
-      h+='<div class="card"><span class="cn">'+esc(p.time)+'　'+esc(p.type)+'</span><span class="ca">';
+      var isBrk=(p.type==='休憩実績');   // 承認された「休憩が取れなかった日の申請」（時刻欄＝分数）
+      h+='<div class="card"><span class="cn">'+(isBrk?('休憩の申請　'+hmToMin(p.time)+'分'):(esc(p.time)+'　'+esc(p.type)))+'</span><span class="ca">';
       if(fixPending&&fixPending.logId===p.logId&&fixPending.mode==='edit'){
         h+='<input type="time" id="f-newtime" value="'+esc(p.time)+'" style="width:118px"> '+
            '<button data-act="edit-ok" data-i="'+i+'">確定</button> <button data-act="ui-cancel" data-i="'+i+'">やめる</button>';
       }else if(fixPending&&fixPending.logId===p.logId&&fixPending.mode==='cancel'){
         h+='取り消しますか？ <button data-act="del-ok" data-i="'+i+'">実行</button> <button data-act="ui-cancel" data-i="'+i+'">やめる</button>';
       }else{
-        h+='<button data-act="del" data-i="'+i+'">取消</button> <button data-act="edit" data-i="'+i+'">時刻を直す</button>';
+        h+='<button data-act="del" data-i="'+i+'">取消</button>'+(isBrk?'':' <button data-act="edit" data-i="'+i+'">時刻を直す</button>');
       }
       h+='</span></div>';
     });
@@ -453,6 +457,39 @@
     if(act==='edit'){ fixPending={logId:p.logId,mode:'edit'}; renderFixList(); return; }
     if(act==='del-ok'){ submitFixOp('cancel',p.logId,p.type,p.time); return; }
     if(act==='edit-ok'){ var nt=document.getElementById('f-newtime'); submitFixOp('edit',p.logId,p.type,nt?nt.value:''); return; }
+  }
+
+  function hmToMin(t){ var m=String(t||'').match(/(\d{1,2}):(\d{2})/); return m?(Number(m[1])*60+Number(m[2])):0; }
+
+  // 休憩が取れなかった日の申請（休憩は自動でつく＝出勤〜退勤が9時間以上60分／6時間45分超45分。取れなかった日だけ、実際に取れた分数を申請する）
+  var brkSending=false;
+  function renderBrkForm(){
+    var today=todayStr();
+    var opts=''; [0,10,15,20,30,40,45,50].forEach(function(n){ opts+='<option value="'+n+'">'+(n===0?'0分（まったく取れなかった）':n+'分')+'</option>'; });
+    app.innerHTML='<h1>☕ 休憩が取れなかった日の申請</h1>'+
+      '<p class="sub">休憩は自動でつきます（出勤から退勤までが9時間以上の日は60分、6時間45分を超える日は45分）。1日保育のおでかけなどで、その分を取れなかった日だけ、実際に取れた分数を申請してください。上長→理事長/事務局長の承認で反映されます。</p>'+
+      '<div class="form">'+
+        '<div class="field"><label>対象の日</label><input type="date" id="b-date" value="'+today+'" max="'+today+'"></div>'+
+        '<div class="field"><label>実際に取れた休憩</label><select id="b-min">'+opts+'</select></div>'+
+        '<div class="field"><label>理由</label><textarea id="b-reason" placeholder="例）夏休みの1日保育で、おでかけの引率のため"></textarea></div>'+
+        '<button id="b-send">この内容で申請する</button>'+
+      '</div><p class="note">※自動でつく分の休憩を取れた日は申請不要です。出した申請を取り消す時は「打刻の修正を申請」でその日を開き、「休憩の申請」の［取消］を押してください。</p>'+
+      '<div id="b-msg"></div>'+
+      '<a class="card" href="'+VIEW_HTML+'?view=shinsei" style="text-decoration:none;margin-top:16px"><span class="cn">各種申請へ戻る</span><span class="ca">›</span></a>';
+    document.getElementById('b-send').addEventListener('click',function(){
+      var msg=document.getElementById('b-msg'), btn=document.getElementById('b-send');
+      var date=document.getElementById('b-date').value, minutes=document.getElementById('b-min').value, reason=document.getElementById('b-reason').value;
+      if(!date){ msg.className='msg ng'; msg.textContent='対象の日を選んでください。'; return; }
+      if(!idToken){ msg.className='msg ng'; msg.textContent='本人確認がまだです。LINEのメニューから開き直してください。'; return; }
+      if(brkSending) return;                                 // 送信中は重ねて送らない
+      brkSending=true; btn.disabled=true;
+      msg.className='msg'; msg.textContent='申請を送信中…（そのままお待ちください）';
+      postJson({source:'fix-request',op:'brk',idToken:idToken,date:date,minutes:minutes,reason:reason}).then(function(res){
+        brkSending=false; btn.disabled=false;
+        if(res&&res.ok){ msg.className='msg ok'; msg.textContent='✅ '+(res.msg||'申請しました。承認をお待ちください。'); }
+        else { msg.className='msg ng'; msg.textContent='⚠️ '+((res&&res.msg)||'申請に失敗しました。時間をおいて再度お試しください。'); }
+      }).catch(function(e){ brkSending=false; btn.disabled=false; msg.className='msg ng'; msg.textContent='送信に失敗しました。通信環境を確認してください。\n'+e; });
+    });
   }
 
   // op: 'add'|'cancel'|'edit' を送信（氏名はidTokenで自動特定＝送らない）
@@ -479,6 +516,7 @@
   function load(){
     if(view==='shinsei'){renderShinsei();return;}
     if(view==='fix'){renderFixForm();return;}
+    if(view==='brk'){renderBrkForm();return;}
     if(view==='mymonth'){loadMyMonth(/^\d{4}-\d{1,2}$/.test(qs.get('ym')||'')?qs.get('ym'):'');return;}
     if(view==='yukyu'){loadYukyu();return;}
     var fn=view==='contact'?renderContact:renderBoard;
