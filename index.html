@@ -37,6 +37,8 @@
   .modal-btns { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
   .modal-btns button { font-size:16px; font-weight:700; padding:14px 8px; border:none; border-radius:12px; }
   .modal-cancel { background:#eceff3; color:#5a6572; }
+  .modal-lbl { display:block; font-size:13px; font-weight:700; color:#5a6572; margin:0 0 6px; }
+  .modal-in { width:100%; font-size:16px; padding:11px 10px; border:1px solid #cbd5e1; border-radius:10px; margin:0 0 14px; background:#fff; color:#1a202c; }
   .modal-ok { background:var(--blue); color:#fff; }
 </style>
 </head>
@@ -128,15 +130,50 @@
       ov.querySelector('.modal-cancel').addEventListener('click', function () { close(); if (onCancel) onCancel(); });
     }
 
-    function send(type, lat, lng, confirm) {
+    // 勤務時間中の出勤/退勤＝打刻ではなく「この時刻での申請」にする確認（理由を選んで送る）。
+    function showApplyModal(type, message, onOk, onCancel) {
+      var opts = (type === '出勤' ? ['遅刻', '午前に有休・半休', '通院・私用', 'その他'] : ['早退', '午後に有休・半休', '通院・私用', 'その他'])
+        .map(function (t) { return '<option value="' + escHtml(t) + '">' + escHtml(t) + '</option>'; }).join('');
+      var ov = document.createElement('div');
+      ov.className = 'modal-ov';
+      ov.innerHTML =
+        '<div class="modal" role="dialog" aria-modal="true">' +
+          '<p class="modal-ttl">📝 申請として受け付けます</p>' +
+          '<p class="modal-msg">' + escHtml(message).replace(/\n/g, '<br>') + '</p>' +
+          '<label class="modal-lbl">理由</label><select class="modal-in" id="ap-kind">' + opts + '</select>' +
+          '<label class="modal-lbl">補足（任意）</label><input class="modal-in" id="ap-note" type="text" maxlength="60" placeholder="例）電車の遅れ">' +
+          '<div class="modal-btns">' +
+            '<button type="button" class="modal-cancel">やめる</button>' +
+            '<button type="button" class="modal-ok">申請する</button>' +
+          '</div>' +
+        '</div>';
+      document.body.appendChild(ov);
+      function close() { if (ov.parentNode) ov.parentNode.removeChild(ov); }
+      ov.querySelector('.modal-ok').addEventListener('click', function () {
+        var k = ov.querySelector('#ap-kind').value, n = ov.querySelector('#ap-note').value.trim();
+        close(); if (onOk) onOk(n ? k + '：' + n : k);
+      });
+      ov.querySelector('.modal-cancel').addEventListener('click', function () { close(); if (onCancel) onCancel(); });
+    }
+
+    function send(type, lat, lng, confirm, apply, reason) {
       setStatus(type + 'を記録中…', 'spin');
       fetch(EXEC_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ source: 'liff-punch', idToken: idToken, type: type, lat: lat, lng: lng, confirm: confirm ? 1 : 0 })
+        body: JSON.stringify({ source: 'liff-punch', idToken: idToken, type: type, lat: lat, lng: lng, confirm: confirm ? 1 : 0, apply: apply ? 1 : 0, reason: reason || '' })
       }).then(function (r) { return r.json(); }).then(function (res) {
         setBusy(false);
-        if (res.ok) {
+        if (res.ok && res.applied) {
+          setStatus('📝 ' + res.msg, 'ok');     // 打刻ではなく申請。画面は閉じない（内容を読めるように）
+          uidEl.style.display = 'none';
+        } else if (res.needApply) {
+          // 勤務時間中の出勤/退勤＝この時刻での申請にするかを1回聞く。位置情報は取得済みなので再利用。
+          setStatus('確認してください。', 'spin');
+          showApplyModal(type, res.msg || ('「' + type + '」を申請しますか？'),
+            function (why) { setBusy(true); send(type, lat, lng, confirm, true, why); },
+            function () { setStatus('「' + type + '」の申請をやめました（打刻も申請もされていません）。', ''); });
+        } else if (res.ok) {
           var willClose = PRESET_TYPE && liff.isInClient();
           setStatus('✅ ' + res.msg + (willClose ? '\n\nこの画面は自動で閉じます。' : ''), 'ok');
           uidEl.style.display = 'none';

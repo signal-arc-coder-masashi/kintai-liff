@@ -110,9 +110,17 @@
     if(d&&d.needAuth){renderNeedAuth(d);return;}
     var h='<h1>📋 出勤簿（本日）</h1><p class="sub">'+esc(d.today)+'　最終更新 '+esc(d.updated)+'（30秒ごとに自動更新）</p>';
     if(d.myAlerts&&d.myAlerts.length){
-      h+='<div class="alert"><b>⚠ あなたの打刻に確認が必要です</b><ul>';
-      d.myAlerts.forEach(function(a){h+='<li>'+esc(a.md)+'　「'+esc(a.kind)+'」の打刻がありません</li>';});
-      h+='</ul><a href="'+VIEW_HTML+'?view=fix">打刻の修正を申請する ›</a></div>';
+      var todo=d.myAlerts.filter(function(a){return !a.pending;}), wait=d.myAlerts.filter(function(a){return a.pending;});
+      if(todo.length){
+        h+='<div class="alert"><b>⚠ あなたの打刻に確認が必要です</b><ul>';
+        todo.forEach(function(a){h+='<li>'+esc(a.md)+'　「'+esc(a.kind)+'」の打刻がありません</li>';});
+        h+='</ul><a href="'+VIEW_HTML+'?view=fix">打刻の修正を申請する ›</a></div>';
+      }
+      if(wait.length){   // すでに申請している分は、催促せずに状態だけ知らせる
+        h+='<div class="notice" style="margin-bottom:16px"><b>申請中の打刻があります（もう一度申請する必要はありません）</b><ul style="margin:8px 0 8px;padding-left:20px">';
+        wait.forEach(function(a){h+='<li>'+esc(a.md)+'　「'+esc(a.kind)+'」　'+esc(a.pending)+'</li>';});
+        h+='</ul><a href="'+VIEW_HTML+'?view=fixstatus">申請の状況を見る ›</a></div>';
+      }
     }
     h+='<a class="card" href="'+VIEW_HTML+'?view=mymonth" style="text-decoration:none"><span class="cn">🖨 自分の出勤簿（月ごと）をPDFで保存・印刷</span><span class="ca">開く ›</span></a>';
     if(!d.clubs.length) h+='<div class="club"><span class="none">クラブが未登録です。</span></div>';
@@ -285,7 +293,7 @@
       var x=by[dd.date]||{}, memo='', warn=false;
       if(x.noOut!==undefined){
         // バックエンドの判定（月次集計の要確認と同じ。中抜けで最後の出勤だけ閉じていない日も拾う）
-        var ms=[]; if(x.noOut){ms.push('退勤の打刻なし');warn=true;} if(x.noIn){ms.push('出勤の打刻なし');warn=true;} if(x.open&&!x.noOut) ms.push('在席中');
+        var ms=[]; if(x.noOut){ if(x.pendOut) ms.push('退勤は申請中'); else {ms.push('退勤の打刻なし');warn=true;} } if(x.noIn){ if(x.pendIn) ms.push('出勤は申請中'); else {ms.push('出勤の打刻なし');warn=true;} } if(x.open&&!x.noOut) ms.push('在席中');
         if(x.brkNote) ms.push(x.brkNote);
         memo=ms.join('・');
       } else if(x.in&&!x.out){ if(dd.date<today){memo='退勤の打刻なし';warn=true;} else memo='在席中'; }   // 旧バックエンド向けの簡易判定
@@ -373,6 +381,7 @@
   function renderShinsei(){
     var soon=function(i,l){return '<div class="card soon"><span class="cn">'+i+' '+l+'</span><span class="ca">準備中</span></div>';};
     var h='<h1>📝 各種申請</h1><p class="sub">打刻の修正は今すぐ申請できます。休暇・有休の申請は順次ここに追加します。</p>';
+    h+='<div id="s-apv"></div>';
     h+='<h2>打刻の修正</h2><a class="card" href="'+VIEW_HTML+'?view=fix" style="text-decoration:none"><span class="cn">🛠 打刻の修正を申請</span><span class="ca">申請する ›</span></a>';
     h+='<p class="note">打ち忘れの追加、押し間違いの取消、時刻の修正ができます。上長・理事長/事務局長の承認で反映されます。お名前はLINEの本人確認から自動で判定します。</p>';
     h+='<h2>休憩</h2><a class="card" href="'+VIEW_HTML+'?view=brk" style="text-decoration:none"><span class="cn">☕ 休憩が取れなかった日の申請</span><span class="ca">申請する ›</span></a>'+
@@ -380,10 +389,16 @@
     h+='<h2>予定申請（事前に申請）</h2>'+'<a class="card" href="'+VIEW_HTML+'?view=yukyu" style="text-decoration:none"><span class="cn">🌴 有休の申請（全日・半日・時間）</span><span class="ca">申請 ›</span></a>'+soon('🔁','振替・代休の申請');
     h+='<h2>当日申請（急ぎの連絡）</h2>'+soon('🤒','当日欠勤の連絡')+soon('🏃','遅刻の連絡')+soon('🏠','早退の連絡');
     h+='<h2>照会</h2>';
+    h+='<a class="card" href="'+VIEW_HTML+'?view=fixstatus" style="text-decoration:none"><span class="cn">📋 申請の状況（打刻の修正・休憩）</span><span class="ca">見る ›</span></a>';
     h+='<a class="card" href="'+VIEW_HTML+'?view=mymonth" style="text-decoration:none"><span class="cn">📅 当月の打刻状況・出勤簿PDF</span><span class="ca">見る ›</span></a>';
     h+='<a class="card" href="'+VIEW_HTML+'?view=yukyu" style="text-decoration:none"><span class="cn">📊 有休の残日数・申請の状況</span><span class="ca">見る ›</span></a>';
     h+='<p class="note">※「当月の打刻状況」は自分の当月（20日〆）の出退勤・労働時間・時間外を表示。有休は、事務局が付与日数を登録すると申請できます。</p>';
     app.innerHTML=h;
+    // 承認する番の申請がある人にだけ、いちばん上に「承認待ち一覧」への入口を出す（読めない時は何も出さない）
+    if(idToken) postJson({api:'myapprovals',idToken:idToken}).then(function(d){
+      var box=document.getElementById('s-apv');
+      if(box&&d&&d.ok&&d.total>0) box.innerHTML='<h2>承認する方へ</h2><a class="card" href="'+VIEW_HTML+'?view=approvals" style="text-decoration:none;border-color:#D9381E"><span class="cn">✅ 承認待ち一覧（'+d.total+'件）</span><span class="ca">まとめて承認 ›</span></a>';
+    }).catch(function(){});
   }
 
   // 打刻修正の申請フォーム（★氏名欄なし＝申請者はLINEの本人確認で自動特定。他人名義の申請は不可）
@@ -405,7 +420,8 @@
         '<div class="field"><label>正しい時刻</label><input type="time" id="f-time"></div>'+
         '<button id="f-add">この内容で追加申請する</button>'+
       '</div><p class="note">※お名前はLINEの本人確認から自動で判定します（入力不要）。</p>'+
-      '<div id="f-msg"></div>';
+      '<div id="f-msg"></div>'+
+      '<a class="card" href="'+VIEW_HTML+'?view=fixstatus" style="text-decoration:none;margin-top:16px"><span class="cn">📋 出した申請の状況を見る</span><span class="ca">見る ›</span></a>';
     app.innerHTML=h;
     document.getElementById('f-date').addEventListener('change',loadMyPunches);
     document.getElementById('f-add').addEventListener('click',function(){
@@ -457,6 +473,105 @@
     if(act==='edit'){ fixPending={logId:p.logId,mode:'edit'}; renderFixList(); return; }
     if(act==='del-ok'){ submitFixOp('cancel',p.logId,p.type,p.time); return; }
     if(act==='edit-ok'){ var nt=document.getElementById('f-newtime'); submitFixOp('edit',p.logId,p.type,nt?nt.value:''); return; }
+  }
+
+  // 承認待ち一覧（承認する方）：自分が承認する番の申請を一覧し、選んだ分をまとめて承認する
+  var apvList=[], apvBusy=false, apvArmed=false, apvDone=[];
+  function loadApprovals(){
+    app.innerHTML='<p class="sub">読み込み中…</p>';
+    postJson({api:'myapprovals',idToken:idToken}).then(function(d){
+      if(d&&d.needAuth){renderNeedAuth(d);return;}
+      apvList=((d&&d.list)||[]).map(function(x){ x.sel=true; return x; }); apvArmed=false; renderApprovals();
+    }).catch(function(e){app.innerHTML='<p class="sub">読み込みに失敗しました。再読み込みしてください。<br>'+esc(e)+'</p>';});
+  }
+  function renderApprovals(){
+    var n=apvList.filter(function(x){return x.sel;}).length;
+    var h='<h1>✅ 承認待ち一覧</h1><p class="sub">あなたの承認を待っている申請です（申請の古い順）。内容を確かめて、承認するものにチェックを付けてください。</p>';
+    if(apvDone.length){
+      var okN=apvDone.filter(function(r){return r.ok;}).length, ng=apvDone.filter(function(r){return !r.ok;});
+      h+='<div class="msg '+(ng.length?'ng':'ok')+'" style="margin-bottom:16px">✅ '+okN+'件を承認しました。'+(ng.length?'<br>⚠️ 承認できなかった申請が '+ng.length+'件あります：<br>'+ng.map(function(r){return '・'+esc(r.msg);}).join('<br>'):'')+'</div>';
+    }
+    if(!apvList.length){
+      h+='<div class="club"><span class="none">承認待ちの申請はありません。</span></div>';
+    }else{
+      h+='<div class="club" style="margin-bottom:12px"><b>'+apvList.length+'件</b>　<a href="#" id="a-all">すべて選ぶ</a>　／　<a href="#" id="a-none">すべて外す</a></div>';
+      apvList.forEach(function(x,i){
+        h+='<label class="club" style="display:flex;gap:12px;align-items:flex-start;margin-bottom:10px;cursor:pointer">'+
+          '<input type="checkbox" data-i="'+i+'"'+(x.sel?' checked':'')+' style="width:24px;height:24px;margin-top:2px;flex:none">'+
+          '<span style="flex:1"><span style="font-weight:700">'+esc(x.name)+' さん</span>'+(x.club?'<span class="note">　'+esc(x.club)+'</span>':'')+
+          '<br>'+esc(mmdd(x.date))+'　'+esc(x.what)+
+          (x.reason?'<br><span style="font-size:14px">理由：'+esc(x.reason)+'</span>':'')+
+          '<br><span class="note">'+esc(x.stageName)+(x.at?'　申請 '+esc(x.at):'')+'</span></span></label>';
+      });
+      h+='<button id="a-go"'+(n?'':' disabled')+(apvArmed?' style="background:#2e7d32"':'')+'>'+(apvArmed?'もう一度押すと、'+n+'件を承認します':'選んだ '+n+'件を承認する')+'</button>'+
+         '<div id="a-msg" class="msg" style="display:none;margin-top:12px"></div>'+
+         '<p class="note">※却下・差し戻し（質問する）は、LINEに届いている承認カードのボタンから、1件ずつ行ってください。ここで承認した申請のカードのボタンは、無効になります。</p>';
+    }
+    h+='<a class="card" href="'+VIEW_HTML+'?view=shinsei" style="text-decoration:none;margin-top:16px"><span class="cn">各種申請へ戻る</span><span class="ca">›</span></a>';
+    app.innerHTML=h;
+    var boxes=app.querySelectorAll('input[type=checkbox]');
+    for(var i=0;i<boxes.length;i++) boxes[i].addEventListener('change',function(){ apvList[Number(this.getAttribute('data-i'))].sel=this.checked; apvArmed=false; renderApprovals(); });
+    var all=document.getElementById('a-all'), none=document.getElementById('a-none'), go=document.getElementById('a-go');
+    var setAll=function(v){ return function(e){ e.preventDefault(); apvList.forEach(function(x){x.sel=v;}); apvArmed=false; renderApprovals(); }; };
+    if(all) all.addEventListener('click',setAll(true));
+    if(none) none.addEventListener('click',setAll(false));
+    if(go) go.addEventListener('click',function(){
+      if(apvBusy) return;
+      if(!apvArmed){ apvArmed=true; renderApprovals(); return; }      // 1回目は確認だけ（押し間違いでまとめて承認しない）
+      runBulkApprove(apvList.filter(function(x){return x.sel;}));
+    });
+  }
+  // 選んだ申請を5件ずつ送る（1件ごとに通知と集計の更新があるため、小分けにして進み具合を出す）
+  function runBulkApprove(items){
+    apvBusy=true; apvDone=[];
+    var total=items.length, pos=0, CH=5;
+    var bs=app.querySelectorAll('button,input'); for(var i=0;i<bs.length;i++) bs[i].disabled=true;
+    var msg=document.getElementById('a-msg');
+    var show=function(t){ if(msg){ msg.style.display='block'; msg.className='msg'; msg.textContent=t; } };
+    var finish=function(){ apvBusy=false; var keep=apvDone; loadApprovalsKeep(keep); };
+    var step=function(){
+      if(pos>=total){ finish(); return; }
+      var part=items.slice(pos,pos+CH);
+      show('承認しています… '+pos+' / '+total+'件（画面を閉じずにお待ちください）');
+      postJson({source:'bulk-approve',idToken:idToken,items:part.map(function(x){return {type:x.type,id:x.id,stage:x.stage};})}).then(function(res){
+        if(res&&res.results) apvDone=apvDone.concat(res.results);
+        else apvDone=apvDone.concat(part.map(function(x){return {id:x.id,ok:false,msg:(res&&res.msg)||'承認できませんでした。'};}));
+        pos+=CH; step();
+      }).catch(function(){
+        apvDone=apvDone.concat(part.map(function(x){return {id:x.id,ok:false,msg:x.name+' さんの申請：通信に失敗しました。一覧を確かめて、残っていればもう一度承認してください。'};}));
+        finish();
+      });
+    };
+    step();
+  }
+  function loadApprovalsKeep(done){
+    postJson({api:'myapprovals',idToken:idToken}).then(function(d){
+      apvList=((d&&d.list)||[]).map(function(x){ x.sel=false; return x; }); apvArmed=false; apvDone=done; renderApprovals(); apvDone=[];
+    }).catch(function(){ apvList=[]; apvDone=done; renderApprovals(); apvDone=[]; });
+  }
+
+  // 申請の状況（打刻の修正・休憩）：自分の申請と、いま誰の承認待ちか
+  function loadFixStatus(){
+    app.innerHTML='<p class="sub">読み込み中…</p>';
+    postJson({api:'myfixes',idToken:idToken}).then(renderFixStatus).catch(function(e){app.innerHTML='<p class="sub">読み込みに失敗しました。再読み込みしてください。<br>'+esc(e)+'</p>';});
+  }
+  function renderFixStatus(d){
+    if(d&&d.needAuth){renderNeedAuth(d);return;}
+    var list=(d&&d.list)||[], open=list.filter(function(x){return x.open;}), done=list.filter(function(x){return !x.open;});
+    var h='<h1>📋 申請の状況</h1><p class="sub">'+esc((d&&d.name)||'')+' さん　打刻の修正・休憩の申請（新しい順）</p>';
+    var row=function(x){
+      return '<div class="club" style="margin-bottom:10px"><div style="font-weight:700">'+esc(mmdd(x.date))+'　'+esc(x.what)+'</div>'+
+        '<div style="margin-top:6px"><span class="badge'+(/^承認済み/.test(x.status)?' ok':'')+'" style="'+(x.open?'background:#FFF4D6;color:#8a5a00':(/^承認済み/.test(x.status)?'':'background:#eceff3;color:#5a6572'))+'">'+esc(x.status)+'</span></div>'+
+        (x.waiting?'<div style="margin-top:6px;font-size:14px">'+esc(x.waiting)+'</div>':'')+
+        '<div class="note" style="margin-top:6px">申請 '+esc(x.at)+'</div></div>';
+    };
+    h+='<h2>承認待ち（'+open.length+'件）</h2>';
+    if(open.length){ h+=open.map(row).join('')+'<p class="note">※承認待ちの申請は、もう一度出す必要はありません。承認されると、LINEにお知らせが届きます。</p>'; }
+    else h+='<div class="club"><span class="none">承認待ちの申請はありません。</span></div>';
+    h+='<h2>結果が出た申請</h2>';
+    h+=done.length?done.map(row).join(''):'<div class="club"><span class="none">まだありません。</span></div>';
+    h+='<a class="card" href="'+VIEW_HTML+'?view=shinsei" style="text-decoration:none;margin-top:16px"><span class="cn">各種申請へ戻る</span><span class="ca">›</span></a>';
+    app.innerHTML=h;
   }
 
   function hmToMin(t){ var m=String(t||'').match(/(\d{1,2}):(\d{2})/); return m?(Number(m[1])*60+Number(m[2])):0; }
@@ -517,6 +632,8 @@
     if(view==='shinsei'){renderShinsei();return;}
     if(view==='fix'){renderFixForm();return;}
     if(view==='brk'){renderBrkForm();return;}
+    if(view==='fixstatus'){loadFixStatus();return;}
+    if(view==='approvals'){loadApprovals();return;}
     if(view==='mymonth'){loadMyMonth(/^\d{4}-\d{1,2}$/.test(qs.get('ym')||'')?qs.get('ym'):'');return;}
     if(view==='yukyu'){loadYukyu();return;}
     var fn=view==='contact'?renderContact:renderBoard;
