@@ -387,7 +387,11 @@
     h+='<h2>休憩</h2><a class="card" href="'+VIEW_HTML+'?view=brk" style="text-decoration:none"><span class="cn">☕ 休憩が取れなかった日の申請</span><span class="ca">申請する ›</span></a>'+
        '<p class="note">※休憩は自動でつきます（出勤から退勤までが9時間以上の日は60分、6時間45分を超える日は45分。休憩の打刻は不要です）。1日保育のおでかけなどで、その分を取れなかった日だけ申請してください。</p>';
     h+='<h2>予定申請（事前に申請）</h2>'+'<a class="card" href="'+VIEW_HTML+'?view=yukyu" style="text-decoration:none"><span class="cn">🌴 有休の申請（全日・半日・時間）</span><span class="ca">申請 ›</span></a>'+soon('🔁','振替・代休の申請');
-    h+='<h2>当日申請（急ぎの連絡）</h2>'+soon('🤒','当日欠勤の連絡')+soon('🏃','遅刻の連絡')+soon('🏠','早退の連絡');
+    h+='<h2>当日の連絡（急ぎ）</h2>'+
+       '<a class="card" href="'+VIEW_HTML+'?view=absence&kind=欠勤" style="text-decoration:none"><span class="cn">🤒 当日欠勤の連絡</span><span class="ca">連絡する ›</span></a>'+
+       '<a class="card" href="'+VIEW_HTML+'?view=absence&kind=遅刻" style="text-decoration:none"><span class="cn">🏃 遅刻の連絡</span><span class="ca">連絡する ›</span></a>'+
+       '<a class="card" href="'+VIEW_HTML+'?view=absence&kind=早退" style="text-decoration:none"><span class="cn">🏠 早退の連絡</span><span class="ca">連絡する ›</span></a>'+
+       '<p class="note">※上長と事務局にLINEで届きます（承認はありません）。欠勤の扱い（病休・有休など）は事務局から確認のご連絡があります。遅刻・早退は、着いた時・帰る時に打刻の画面で「出勤」「退勤」を押すと、理由を選んで申請になります（上長の承認で反映）。</p>';
     h+='<h2>照会</h2>';
     h+='<a class="card" href="'+VIEW_HTML+'?view=fixstatus" style="text-decoration:none"><span class="cn">📋 申請の状況（打刻の修正・休憩）</span><span class="ca">見る ›</span></a>';
     h+='<a class="card" href="'+VIEW_HTML+'?view=mymonth" style="text-decoration:none"><span class="cn">📅 当月の打刻状況・出勤簿PDF</span><span class="ca">見る ›</span></a>';
@@ -578,6 +582,48 @@
 
   // 休憩が取れなかった日の申請（休憩は自動でつく＝出勤〜退勤が9時間以上60分／6時間45分超45分。取れなかった日だけ、実際に取れた分数を申請する）
   var brkSending=false;
+  // 当日の連絡（欠勤・遅刻・早退）。承認はしない＝上長と事務局へ知らせる。遅刻・早退は見込みの時刻も送る
+  var absSending=false;
+  function renderAbsenceForm(kind0){
+    var today=todayStr(), t=new Date(); t.setDate(t.getDate()+1);
+    var tomorrow=t.getFullYear()+'-'+p2(t.getMonth()+1)+'-'+p2(t.getDate());
+    var kinds=['欠勤','遅刻','早退'], kind=kinds.indexOf(kind0)>=0?kind0:'欠勤';
+    var reasons={'欠勤':['体調不良','通院','子どもの看護・家族の事情','その他'],'遅刻':['体調不良・通院','交通機関の遅れ','家族の事情','その他'],'早退':['体調不良・通院','家族の事情','私用','その他']};
+    var icon={'欠勤':'🤒','遅刻':'🏃','早退':'🏠'};
+    function draw(){
+      var ro=reasons[kind].map(function(r){return '<option value="'+esc(r)+'">'+esc(r)+'</option>';}).join('');
+      var ko=kinds.map(function(k){return '<option value="'+k+'"'+(k===kind?' selected':'')+'>'+k+'</option>';}).join('');
+      app.innerHTML='<h1>'+icon[kind]+' '+kind+'の連絡</h1>'+
+        '<p class="sub">上長と事務局にLINEで届きます（承認はありません）。'+(kind==='欠勤'?'病休・有休などの扱いは、事務局から確認のご連絡があります。後日、申請書の提出もお願いします。':'着いた時・帰る時は、いつもどおり打刻の画面で「'+(kind==='遅刻'?'出勤':'退勤')+'」を押してください。勤務時間中は理由を選んで申請になり、上長の承認で反映されます。')+'</p>'+
+        '<div class="form">'+
+          '<div class="field"><label>種別</label><select id="a-kind">'+ko+'</select></div>'+
+          '<div class="field"><label>日付</label><select id="a-date"><option value="'+today+'">今日（'+today.substring(5).replace('-','/')+'）</option><option value="'+tomorrow+'">明日（'+tomorrow.substring(5).replace('-','/')+'）</option></select></div>'+
+          (kind==='欠勤'?'':'<div class="field"><label>'+(kind==='遅刻'?'着く見込みの時刻':'帰る見込みの時刻')+'</label><input type="time" id="a-time" value="'+(kind==='遅刻'?'10:00':'16:00')+'"></div>')+
+          '<div class="field"><label>理由</label><select id="a-why">'+ro+'</select></div>'+
+          '<div class="field"><label>補足（任意）</label><textarea id="a-note" maxlength="80" placeholder="例）発熱のため"></textarea></div>'+
+          '<button id="a-send">この内容で連絡する</button>'+
+        '</div><div id="a-msg"></div>'+
+        '<a class="card" href="'+VIEW_HTML+'?view=shinsei" style="text-decoration:none;margin-top:16px"><span class="cn">各種申請へ戻る</span><span class="ca">›</span></a>';
+      document.getElementById('a-kind').addEventListener('change',function(){ kind=this.value; draw(); });
+      document.getElementById('a-send').addEventListener('click',function(){
+        var msg=document.getElementById('a-msg'), btn=document.getElementById('a-send');
+        var tm=document.getElementById('a-time'), note=document.getElementById('a-note').value.trim();
+        var why=document.getElementById('a-why').value+(note?'：'+note:'');
+        if(kind!=='欠勤'&&!(tm&&tm.value)){ msg.className='msg ng'; msg.textContent='見込みの時刻を入れてください。'; return; }
+        if(!idToken){ msg.className='msg ng'; msg.textContent='本人確認がまだです。LINEのメニューから開き直してください。'; return; }
+        if(absSending) return;                               // 送信中は重ねて送らない
+        absSending=true; btn.disabled=true;
+        msg.className='msg'; msg.textContent='送信中…（そのままお待ちください）';
+        postJson({source:'absence-report',idToken:idToken,kind:kind,date:document.getElementById('a-date').value,time:tm?tm.value:'',reason:why}).then(function(res){
+          absSending=false;
+          if(res&&res.ok){ msg.className='msg ok'; msg.textContent=(res.dup?'ℹ️ ':'✅ ')+(res.msg||'連絡しました。'); }
+          else { btn.disabled=false; msg.className='msg ng'; msg.textContent='⚠️ '+((res&&res.msg)||'送信に失敗しました。時間をおいて再度お試しください。'); }
+        }).catch(function(e){ absSending=false; btn.disabled=false; msg.className='msg ng'; msg.textContent='送信に失敗しました。通信環境を確認してください。急ぎの時は電話でご連絡ください。\n'+e; });
+      });
+    }
+    draw();
+  }
+
   function renderBrkForm(){
     var today=todayStr();
     var opts=''; [0,10,15,20,30,40,45,50].forEach(function(n){ opts+='<option value="'+n+'">'+(n===0?'0分（まったく取れなかった）':n+'分')+'</option>'; });
@@ -632,6 +678,7 @@
     if(view==='shinsei'){renderShinsei();return;}
     if(view==='fix'){renderFixForm();return;}
     if(view==='brk'){renderBrkForm();return;}
+    if(view==='absence'){renderAbsenceForm(qs.get('kind')||'');return;}
     if(view==='fixstatus'){loadFixStatus();return;}
     if(view==='approvals'){loadApprovals();return;}
     if(view==='mymonth'){loadMyMonth(/^\d{4}-\d{1,2}$/.test(qs.get('ym')||'')?qs.get('ym'):'');return;}

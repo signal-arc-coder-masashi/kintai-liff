@@ -156,22 +156,49 @@
       ov.querySelector('.modal-cancel').addEventListener('click', function () { close(); if (onCancel) onCancel(); });
     }
 
-    function send(type, lat, lng, confirm, apply, reason) {
+    // 早番の確認（いつもの始業より前の「出勤」で1回だけ）。早番＝'early'／いつもの時刻＝'normal' で送り直す。
+    function showShiftModal(message, onPick, onCancel) {
+      var ov = document.createElement('div');
+      ov.className = 'modal-ov';
+      ov.innerHTML =
+        '<div class="modal" role="dialog" aria-modal="true">' +
+          '<p class="modal-ttl">🌅 今日の勤務を選んでください</p>' +
+          '<p class="modal-msg">' + escHtml(message).replace(/\n/g, '<br>') + '</p>' +
+          '<div class="modal-btns">' +
+            '<button type="button" class="modal-cancel" id="sh-normal">いつもの時刻</button>' +
+            '<button type="button" class="modal-ok" id="sh-early">早番で出勤</button>' +
+          '</div>' +
+          '<p class="modal-msg" style="margin-top:10px;text-align:center"><a href="#" id="sh-cancel">やめる（打刻しない）</a></p>' +
+        '</div>';
+      document.body.appendChild(ov);
+      function close() { if (ov.parentNode) ov.parentNode.removeChild(ov); }
+      ov.querySelector('#sh-early').addEventListener('click', function () { close(); onPick('early'); });
+      ov.querySelector('#sh-normal').addEventListener('click', function () { close(); onPick('normal'); });
+      ov.querySelector('#sh-cancel').addEventListener('click', function (ev) { ev.preventDefault(); close(); if (onCancel) onCancel(); });
+    }
+
+    function send(type, lat, lng, confirm, apply, reason, shift) {
       setStatus(type + 'を記録中…', 'spin');
       fetch(EXEC_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ source: 'liff-punch', idToken: idToken, type: type, lat: lat, lng: lng, confirm: confirm ? 1 : 0, apply: apply ? 1 : 0, reason: reason || '' })
+        body: JSON.stringify({ source: 'liff-punch', idToken: idToken, type: type, lat: lat, lng: lng, confirm: confirm ? 1 : 0, apply: apply ? 1 : 0, reason: reason || '', shift: shift || '' })
       }).then(function (r) { return r.json(); }).then(function (res) {
         setBusy(false);
         if (res.ok && res.applied) {
           setStatus('📝 ' + res.msg, 'ok');     // 打刻ではなく申請。画面は閉じない（内容を読めるように）
           uidEl.style.display = 'none';
+        } else if (res.needShift) {
+          // 早番かどうかを1回聞く。位置情報は取得済みなので再利用。
+          setStatus('確認してください。', 'spin');
+          showShiftModal(res.msg || '今日は早番ですか？',
+            function (pick) { setBusy(true); send(type, lat, lng, confirm, apply, reason, pick); },
+            function () { setStatus('「' + type + '」の記録をやめました。', ''); });
         } else if (res.needApply) {
           // 勤務時間中の出勤/退勤＝この時刻での申請にするかを1回聞く。位置情報は取得済みなので再利用。
           setStatus('確認してください。', 'spin');
           showApplyModal(type, res.msg || ('「' + type + '」を申請しますか？'),
-            function (why) { setBusy(true); send(type, lat, lng, confirm, true, why); },
+            function (why) { setBusy(true); send(type, lat, lng, confirm, true, why, shift); },
             function () { setStatus('「' + type + '」の申請をやめました（打刻も申請もされていません）。', ''); });
         } else if (res.ok) {
           var willClose = PRESET_TYPE && liff.isInClient();
@@ -182,7 +209,7 @@
           // 2回目以降の出勤/退勤＝確認モーダルを1回表示。位置情報は取得済みなので再利用（再取得しない）。
           setStatus('確認してください。', 'spin');
           showConfirmModal(type, res.msg || ('本日2回目の' + type + 'を記録しますか？'),
-            function () { setBusy(true); send(type, lat, lng, true); },
+            function () { setBusy(true); send(type, lat, lng, true, apply, reason, shift); },
             function () { setStatus('「' + type + '」の記録をやめました。', ''); });
         } else if (res.needRegister && res.uid) {
           setStatus('⚠️ ' + res.msg, 'ng');
